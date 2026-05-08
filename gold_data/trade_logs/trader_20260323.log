@@ -1,0 +1,70 @@
+23:52:10 [INFO] 🚀 Gold Auto Trader เริ่มทำงาน
+23:52:10 [INFO]    Symbol    : XAUUSDm
+23:52:10 [INFO]    Lot size  : 0.01
+23:52:10 [INFO]    Min conf  : 80.0%
+23:52:10 [INFO]    Max orders: 5
+23:52:10 [INFO]    Magic     : 20250323
+23:52:10 [INFO]    TFs       : ['M15', 'M30', 'H1']
+23:52:10 [INFO] เชื่อมต่อ MT5 สำเร็จ | Symbol: XAUUSDm | Bid: 4378.99 Ask: 4379.36
+23:52:10 [INFO] ──────────────────────────────────────────────────
+23:52:10 [INFO] รอบใหม่ 23:52:10
+23:52:10 [INFO] Open orders: 0/5
+23:52:10 [INFO] [M15] signal: DOWN ↓ | conf: 81.7% | entry: 4382.65 | SL: 4449.53 | TP: 4271.19
+23:52:10 [ERROR] ❌ เปิด order ล้มเหลว | M15 | retcode=10027 | comment=AutoTrading disabled by client
+23:52:10 [INFO] จบรอบ | Open orders ตอนนี้: 0
+23:52:10 [INFO] ⏳ รอ schedule... (Ctrl+C เพื่อหยุด)
+23:53:10 [INFO] ──────────────────────────────────────────────────
+23:53:10 [INFO] รอบใหม่ 23:53:10
+23:53:10 [INFO] Open orders: 0/5
+23:53:10 [INFO] [M15] signal: DOWN ↓ | conf: 81.5% | entry: 4384.72 | SL: 4451.60 | TP: 4273.26
+23:53:10 [ERROR] ❌ เปิด order ล้มเหลว | M15 | retcode=10027 | comment=AutoTrading disabled by client
+23:53:10 [INFO] จบรอบ | Open orders ตอนนี้: 0
+23:54:10 [INFO] ──────────────────────────────────────────────────
+23:54:10 [INFO] รอบใหม่ 23:54:10
+23:54:10 [INFO] Open orders: 0/5
+23:54:10 [INFO] [M15] signal: DOWN ↓ | conf: 81.2% | entry: 4387.66 | SL: 4454.54 | TP: 4276.20
+23:54:10 [ERROR] ❌ เปิด order ล้มเหลว | M15 | retcode=10027 | comment=AutoTrading disabled by client
+23:54:10 [INFO] จบรอบ | Open orders ตอนนี้: 0
+23:55:10 [INFO] ──────────────────────────────────────────────────
+23:55:10 [INFO] รอบใหม่ 23:55:10
+23:55:10 [INFO] Open orders: 0/5
+23:55:10 [INFO] [M15] signal: DOWN ↓ | conf: 81.5% | entry: 4386.92 | SL: 4453.80 | TP: 4275.46
+23:55:10 [ERROR] ❌ เปิด order ล้มเหลว | M15 | retcode=10017 | comment=Trade disabled
+23:55:10 [INFO] จบรอบ | Open orders ตอนนี้: 0
+23:56:10 [INFO] ──────────────────────────────────────────────────
+23:56:10 [INFO] รอบใหม่ 23:56:10
+23:56:10 [INFO] Open orders: 0/5
+23:56:10 [INFO] [M15] signal: DOWN ↓ | conf: 81.2% | entry: 4386.53 | SL: 4453.41 | TP: 4275.07
+23:56:10 [ERROR] ❌ เปิด order ล้มเหลว | M15 | retcode=10027 | comment=AutoTrading disabled by client
+23:56:10 [INFO] จบรอบ | Open orders ตอนนี้: 0
+23:56:26 [INFO] 🛑 หยุด bot แล้ว
+23:56:26 [INFO] ปิดการเชื่อมต่อ MT5 แล้ว
+23:56:36 [INFO] 🚀 Gold Auto Trader เริ่มทำงาน
+23:56:36 [INFO]    Symbol    : XAUUSDm
+23:56:36 [INFO]    Lot size  : 0.01
+23:56:36 [INFO]    Min conf  : 80.0%
+23:56:36 [INFO]    Max orders: 5
+23:56:36 [INFO]    Magic     : 20250323
+23:56:36 [INFO]    TFs       : ['M15', 'M30', 'H1']
+23:56:36 [INFO] เชื่อมต่อ MT5 สำเร็จ | Symbol: XAUUSDm | Bid: 4383.68 Ask: 4384.05
+23:56:36 [INFO] ──────────────────────────────────────────────────
+23:56:36 [INFO] รอบใหม่ 23:56:36
+23:56:36 [INFO] Open orders: 0/5
+23:56:36 [INFO] [M15] signal: DOWN ↓ | conf: 81.2% | entry: 4386.53 | SL: 4453.41 | TP: 4275.07
+23:56:36 [ERROR] ❌ เปิด order ล้มเหลว | M15 | retcode=10017 | comment=Trade disabled
+23:56:36 [INFO] จบรอบ | Open orders ตอนนี้: 0
+23:56:36 [INFO] ⏳ รอ schedule... (Ctrl+C เพื่อหยุด)
+23:57:36 [INFO] ──────────────────────────────────────────────────
+23:57:36 [INFO] รอบใหม่ 23:57:36
+23:57:36 [INFO] Open orders: 0/5
+23:57:36 [INFO] [M15] signal: DOWN ↓ | conf: 81.2% | entry: 4382.53 | SL: 4449.41 | TP: 4271.07
+23:57:36 [ERROR] ❌ เปิด order ล้มเหลว | M15 | retcode=10017 | comment=Trade disabled
+23:57:36 [INFO] จบรอบ | Open orders ตอนนี้: 0
+23:58:36 [INFO] ──────────────────────────────────────────────────
+23:58:36 [INFO] รอบใหม่ 23:58:36
+23:58:36 [INFO] Open orders: 0/5
+23:58:36 [INFO] [M15] signal: DOWN ↓ | conf: 80.7% | entry: 4377.20 | SL: 4444.08 | TP: 4265.74
+23:58:36 [ERROR] ❌ เปิด order ล้มเหลว | M15 | retcode=10017 | comment=Trade disabled
+23:58:36 [INFO] จบรอบ | Open orders ตอนนี้: 0
+23:58:43 [INFO] 🛑 หยุด bot แล้ว
+23:58:43 [INFO] ปิดการเชื่อมต่อ MT5 แล้ว

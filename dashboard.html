@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>XAUUSD · Gold Signal Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --gold:#D4A843;--gold-lt:#F0C96B;--gold-dk:#8B6914;
+    --up:#2ECC8A;--down:#E8455A;--neu:#7A8599;
+    --bg:#080C12;--bg1:#0D1420;--bg2:#111B2B;--bg3:#172236;
+    --border:rgba(212,168,67,0.15);--text:#E8ECF4;--muted:#5A6880;
+    --font-display:'Syne',sans-serif;--font-mono:'IBM Plex Mono',monospace;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--font-mono);font-size:13px;min-height:100vh;overflow-x:hidden}
+  body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(212,168,67,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(212,168,67,.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
+  body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.04) 2px,rgba(0,0,0,.04) 4px);pointer-events:none;z-index:0}
+  .wrap{position:relative;z-index:1;max-width:1200px;margin:0 auto;padding:20px 24px 60px}
+  header{display:flex;align-items:center;justify-content:space-between;padding:18px 0 24px;border-bottom:1px solid var(--border);margin-bottom:28px}
+  .logo{font-family:var(--font-display);font-size:22px;font-weight:800;letter-spacing:-.5px;color:var(--gold-lt)}
+  .logo span{color:var(--muted);font-weight:400;font-size:13px;margin-left:8px;font-family:var(--font-mono)}
+  .header-right{display:flex;align-items:center;gap:16px}
+  .live-badge{display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:1.5px;color:var(--up);text-transform:uppercase}
+  .live-dot{width:7px;height:7px;border-radius:50%;background:var(--up);box-shadow:0 0 8px var(--up);animation:pulse 1.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(.85)}}
+
+  /* NOTIF BUTTON */
+  .notif-btn{display:flex;align-items:center;gap:6px;padding:6px 14px;border-radius:20px;border:1px solid var(--border);background:var(--bg2);color:var(--muted);font-family:var(--font-mono);font-size:11px;cursor:pointer;transition:all .2s;letter-spacing:.5px}
+  .notif-btn:hover{border-color:var(--gold);color:var(--gold)}
+  .notif-btn.enabled{border-color:var(--up);color:var(--up);background:rgba(46,204,138,.08)}
+  .notif-btn.denied{border-color:var(--down);color:var(--down)}
+
+  /* TOAST */
+  #toast-container{position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:10px;pointer-events:none}
+  .toast{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 18px;min-width:280px;max-width:340px;box-shadow:0 8px 32px rgba(0,0,0,.5);animation:slideIn .3s ease;pointer-events:all}
+  .toast.is-up{border-left:3px solid var(--up)}
+  .toast.is-down{border-left:3px solid var(--down)}
+  .toast-head{font-family:var(--font-display);font-size:13px;font-weight:700;margin-bottom:6px}
+  .toast-body{font-size:11px;color:var(--muted);line-height:1.6}
+  .toast-close{float:right;cursor:pointer;color:var(--muted);font-size:16px;line-height:1;margin-left:8px}
+  @keyframes slideIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
+
+  /* TICKER */
+  .ticker{background:var(--bg1);border:1px solid var(--border);border-radius:10px;padding:20px 28px;margin-bottom:24px;display:flex;align-items:center;gap:40px;position:relative;overflow:hidden}
+  .ticker::before{content:'XAU/USD';position:absolute;right:24px;top:50%;transform:translateY(-50%);font-family:var(--font-display);font-size:60px;font-weight:800;color:rgba(212,168,67,.04);letter-spacing:-2px;pointer-events:none}
+  .price-main{font-family:var(--font-display);font-size:44px;font-weight:800;color:var(--gold-lt);letter-spacing:-1px;line-height:1}
+  .price-change{display:flex;flex-direction:column;gap:4px}
+  .change-val{font-size:16px;font-weight:600}
+  .change-pct{font-size:12px;color:var(--muted)}
+  .up-color{color:var(--up)}.down-color{color:var(--down)}.neu-color{color:var(--neu)}.gold-color{color:var(--gold)}
+  .ticker-meta{display:flex;flex-direction:column;gap:4px;margin-left:auto;text-align:right}
+  .ticker-meta .label{color:var(--muted);font-size:10px;letter-spacing:1px;text-transform:uppercase}
+  .ticker-meta .val{font-size:13px;color:var(--text)}
+
+  /* CARDS */
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px}
+  .card{background:var(--bg1);border:1px solid var(--border);border-radius:12px;padding:20px 22px;position:relative;overflow:hidden;transition:border-color .2s,transform .2s;animation:fadeUp .4s ease both}
+  .card:nth-child(2){animation-delay:.08s}.card:nth-child(3){animation-delay:.16s}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+  .card:hover{border-color:rgba(212,168,67,.35);transform:translateY(-2px)}
+  .card.is-up{border-top:2px solid var(--up)}.card.is-down{border-top:2px solid var(--down)}.card.is-neu{border-top:2px solid var(--neu)}
+  .card::before{content:attr(data-tf);position:absolute;top:-8px;right:16px;font-family:var(--font-display);font-size:64px;font-weight:800;color:rgba(255,255,255,.025);pointer-events:none}
+  .card-tf{font-size:10px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:10px}
+  .card-dir{font-family:var(--font-display);font-size:28px;font-weight:800;letter-spacing:-.5px;line-height:1;margin-bottom:6px}
+  .card-conf{font-size:11px;color:var(--muted);margin-bottom:16px}.card-conf b{color:var(--text)}
+  .proba-bar{display:flex;border-radius:4px;overflow:hidden;height:4px;margin-bottom:16px;gap:2px}
+  .proba-bar .seg{height:100%;border-radius:2px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px}
+  .field{display:flex;flex-direction:column;gap:3px}
+  .field .lbl{font-size:10px;letter-spacing:1px;color:var(--muted);text-transform:uppercase}
+  .field .val{font-size:14px;font-weight:500}
+  .rr-badge{display:inline-block;margin-top:12px;padding:3px 10px;border-radius:20px;background:rgba(212,168,67,.1);border:1px solid var(--border);color:var(--gold);font-size:11px;letter-spacing:.5px}
+  .card-updated{font-size:10px;color:var(--muted);margin-top:8px}
+
+  /* SECTION */
+  .section-title{font-family:var(--font-display);font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+  .indicators{background:var(--bg1);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:24px}
+  .ind-row{display:grid;grid-template-columns:120px 1fr 80px 80px 80px;align-items:center;padding:10px 20px;border-bottom:1px solid rgba(255,255,255,.04);gap:12px}
+  .ind-row:last-child{border-bottom:none}
+  .ind-row.header{background:var(--bg2);color:var(--muted);font-size:10px;letter-spacing:1px;text-transform:uppercase}
+  .ind-name{color:var(--text);font-weight:500}
+  .ind-bar-wrap{background:rgba(255,255,255,.05);border-radius:3px;height:4px}
+  .ind-bar{height:100%;border-radius:3px;transition:width .5s ease}
+  .ind-val{text-align:right}
+  .ind-sig{text-align:right;font-size:11px;letter-spacing:.5px}
+
+  /* LOG */
+  .log-table{background:var(--bg1);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+  .log-row{display:grid;grid-template-columns:80px 60px 90px 90px 90px 90px 80px;padding:9px 20px;gap:8px;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px;align-items:center}
+  .log-row:last-child{border-bottom:none}
+  .log-row.header{background:var(--bg2);color:var(--muted);font-size:10px;letter-spacing:1px;text-transform:uppercase}
+  .tag{display:inline-block;padding:2px 8px;border-radius:12px;font-size:10px;letter-spacing:.5px;font-weight:500}
+  .tag-up{background:rgba(46,204,138,.15);color:var(--up)}.tag-down{background:rgba(232,69,90,.15);color:var(--down)}.tag-neu{background:rgba(122,133,153,.15);color:var(--neu)}
+  .update-bar{display:flex;justify-content:space-between;align-items:center;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 20px;margin-bottom:24px;font-size:11px;color:var(--muted)}
+  .update-bar b{color:var(--gold)}
+  footer{text-align:center;color:var(--muted);font-size:11px;padding-top:32px;letter-spacing:.5px}
+  @media(max-width:768px){.cards{grid-template-columns:1fr}.ind-row{grid-template-columns:100px 1fr 70px}.log-row{grid-template-columns:70px 50px 80px 80px 60px}.ticker{flex-wrap:wrap;gap:16px}.price-main{font-size:32px}}
+</style>
+</head>
+<body>
+<div id="toast-container"></div>
+<div class="wrap">
+  <header>
+    <div class="logo">GOLDTRACK <span>· signal dashboard</span></div>
+    <div class="header-right">
+      <button class="notif-btn" id="notif-btn" onclick="toggleNotif()">🔔 แจ้งเตือน</button>
+      <div class="live-badge"><div class="live-dot"></div> LIVE</div>
+    </div>
+  </header>
+
+  <div class="ticker">
+    <div>
+      <div style="font-size:10px;letter-spacing:2px;color:var(--muted);margin-bottom:6px;text-transform:uppercase">XAU/USD · Spot</div>
+      <div class="price-main" id="price-main">—</div>
+    </div>
+    <div class="price-change">
+      <div class="change-val" id="change-val">—</div>
+      <div class="change-pct" id="change-pct">—</div>
+    </div>
+    <div class="ticker-meta" style="margin-left:auto">
+      <div class="label">Bid / Ask</div><div class="val" id="bid-ask">— / —</div>
+    </div>
+    <div class="ticker-meta">
+      <div class="label">Spread</div><div class="val" id="spread">—</div>
+    </div>
+    <div class="ticker-meta">
+      <div class="label">ATR14</div><div class="val" id="atr14">—</div>
+    </div>
+  </div>
+
+  <div class="update-bar">
+    <span>อัปเดตล่าสุด: <b id="last-update">—</b></span>
+    <span>รีเฟรชอัตโนมัติทุก <b>30 วินาที</b> &nbsp;|&nbsp; Exness MT5</span>
+  </div>
+
+  <div class="section-title" style="margin-bottom:14px">📡 Signal ทำนาย</div>
+  <div class="cards" id="cards"></div>
+
+  <div class="section-title" style="margin-top:8px">📊 Indicators ปัจจุบัน</div>
+  <div class="indicators">
+    <div class="ind-row header">
+      <div>Indicator</div><div>Level</div>
+      <div class="ind-val">Value</div><div class="ind-val">M15</div><div class="ind-sig">Signal</div>
+    </div>
+    <div id="ind-rows"></div>
+  </div>
+
+  <div class="section-title" style="margin-top:20px">🗂 Signal Log วันนี้</div>
+  <div class="log-table">
+    <div class="log-row header">
+      <div>เวลา</div><div>TF</div><div>ทิศทาง</div>
+      <div>Entry</div><div>SL</div><div>TP</div><div>Conf.</div>
+    </div>
+    <div id="log-rows"></div>
+  </div>
+  <footer>XAUUSD Signal Dashboard · ใช้เพื่อการวิจัยเท่านั้น ไม่ใช่คำแนะนำทางการเงิน</footer>
+</div>
+
+<script>
+const API_URL  = '/api/signals';
+const TICK_URL = '/api/tick';
+const REFRESH_MS = 30000;
+
+// ── prev signal tracking สำหรับ detect signal ใหม่ ──
+let prevSignals = {};
+let notifEnabled = false;
+
+// ════════════════════════════════════════════════════════
+//  NOTIFICATION SYSTEM
+// ════════════════════════════════════════════════════════
+
+async function toggleNotif() {
+  if (Notification.permission === 'denied') {
+    showToast('ถูกบล็อก', 'กรุณาอนุญาต notification ใน browser settings', 'neu');
+    return;
+  }
+  if (!notifEnabled) {
+    const perm = await Notification.requestPermission();
+    if (perm === 'granted') {
+      notifEnabled = true;
+      updateNotifBtn();
+      showToast('✅ เปิดแจ้งเตือนแล้ว', 'จะแจ้งเตือนทุกครั้งที่มี signal ใหม่ confidence ≥ 60%', 'up');
+    } else {
+      updateNotifBtn();
+    }
+  } else {
+    notifEnabled = false;
+    updateNotifBtn();
+    showToast('🔕 ปิดแจ้งเตือนแล้ว', '', 'neu');
+  }
+}
+
+function updateNotifBtn() {
+  const btn = document.getElementById('notif-btn');
+  if (Notification.permission === 'denied') {
+    btn.textContent = '🚫 ถูกบล็อก'; btn.className = 'notif-btn denied';
+  } else if (notifEnabled) {
+    btn.textContent = '🔔 แจ้งเตือน ON'; btn.className = 'notif-btn enabled';
+  } else {
+    btn.textContent = '🔔 แจ้งเตือน'; btn.className = 'notif-btn';
+  }
+}
+
+function sendBrowserNotif(tf, sig) {
+  if (!notifEnabled || Notification.permission !== 'granted') return;
+  const dir = sig.direction || '';
+  const icon = dir.includes('UP') ? '📈' : dir.includes('DOWN') ? '📉' : '➡️';
+  const n = new Notification(`${icon} XAUUSD ${tf} — ${dir}`, {
+    body: `Entry: ${sig.entry || '—'}  SL: ${sig.SL || '—'}  TP: ${sig.TP || '—'}\nConfidence: ${sig.confidence || '—'}`,
+    icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">💰</text></svg>',
+    tag: `gold-${tf}`,
+  });
+  n.onclick = () => { window.focus(); n.close(); };
+  setTimeout(() => n.close(), 10000);
+}
+
+// ── Toast notification (in-page) ──
+function showToast(title, body, type='up') {
+  const el = document.createElement('div');
+  el.className = `toast is-${type}`;
+  el.innerHTML = `
+    <span class="toast-close" onclick="this.parentElement.remove()">×</span>
+    <div class="toast-head ${type==='up'?'up-color':type==='down'?'down-color':'neu-color'}">${title}</div>
+    ${body ? `<div class="toast-body">${body}</div>` : ''}
+  `;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 8000);
+}
+
+// ── ตรวจ signal ใหม่ และแจ้งเตือน ──
+function checkNewSignals(data) {
+  ['M15','M30','H1'].forEach(tf => {
+    const sig = data[tf] || {};
+    if (!sig.direction || sig.direction.includes('NEUTRAL')) return;
+
+    const conf = parseFloat((sig.confidence||'0').replace('%',''));
+    if (conf < 60) return;
+
+    // สร้าง key จาก direction + entry เพื่อ detect ว่าเป็น signal ใหม่
+    const key = `${sig.direction}_${sig.entry}`;
+    if (prevSignals[tf] === key) return; // signal เดิม ไม่แจ้งซ้ำ
+    prevSignals[tf] = key;
+
+    const dir = sig.direction;
+    const type = dir.includes('UP') ? 'up' : 'down';
+    const icon = dir.includes('UP') ? '📈' : '📉';
+
+    // Toast in-page เสมอ
+    showToast(
+      `${icon} ${tf} — ${dir} (${sig.confidence})`,
+      `Entry: ${sig.entry||'—'} &nbsp; SL: ${sig.SL||'—'} &nbsp; TP: ${sig.TP||'—'}`,
+      type
+    );
+
+    // Browser notification ถ้าเปิดไว้
+    sendBrowserNotif(tf, sig);
+  });
+}
+
+// ════════════════════════════════════════════════════════
+//  DATA FETCH
+// ════════════════════════════════════════════════════════
+
+async function fetchData() {
+  try {
+    const r = await fetch(API_URL, { signal: AbortSignal.timeout(5000) });
+    if (!r.ok) throw new Error('not ok');
+    return await r.json();
+  } catch {
+    return null;
+  }
+}
+
+// ════════════════════════════════════════════════════════
+//  RENDER
+// ════════════════════════════════════════════════════════
+
+function dirClass(dir) {
+  if (!dir) return 'neu-color';
+  if (dir.includes('UP'))   return 'up-color';
+  if (dir.includes('DOWN')) return 'down-color';
+  return 'neu-color';
+}
+function cardClass(dir) {
+  if (!dir) return 'is-neu';
+  if (dir.includes('UP'))   return 'is-up';
+  if (dir.includes('DOWN')) return 'is-down';
+  return 'is-neu';
+}
+function pct(s) { return parseFloat((s||'0').replace('%','')) || 0; }
+function fmt(v) { return v != null ? Number(v).toFixed(2) : '—'; }
+function formatTime(t) {
+  if (!t) return '—';
+  const s = String(t);
+  // ISO format: 2026-03-23T14:30:00.123456+00:00 หรือ 2026-03-23 14:30:00
+  if (s.includes('T')) return s.slice(11,16) + ' UTC';
+  if (s.includes(' ') && s.length > 10) return s.slice(11,16) + ' UTC';
+  // HH:MM แล้ว
+  return s.slice(0,5);
+}
+
+function renderTicker(data) {
+  const t = data.tick || {};
+  const mid = t.mid || t.bid;
+  if (mid) document.getElementById('price-main').textContent = fmt(mid);
+  const chv = t.change ?? 0;
+  const chp = t.change_pct ?? 0;
+  const cls  = chv >= 0 ? 'up-color' : 'down-color';
+  const sign = chv >= 0 ? '+' : '';
+  document.getElementById('change-val').innerHTML = `<span class="${cls}">${sign}${Number(chv).toFixed(2)}</span>`;
+  document.getElementById('change-pct').innerHTML = `<span class="${cls}">${sign}${Number(chp).toFixed(2)}%</span>`;
+  document.getElementById('bid-ask').textContent  = `${fmt(t.bid)} / ${fmt(t.ask)}`;
+  document.getElementById('spread').textContent   = t.spread != null ? `${t.spread} pip` : '—';
+  const m15 = data.M15 || {};
+  const atr  = m15.ATR || m15.ATR14;
+  document.getElementById('atr14').textContent    = atr != null ? Number(atr).toFixed(1) : '—';
+  document.getElementById('last-update').textContent = new Date().toLocaleTimeString('th-TH');
+}
+
+function renderCards(data) {
+  const tfs = ['M15','M30','H1'];
+  document.getElementById('cards').innerHTML = tfs.map(tf => {
+    const s   = data[tf] || {};
+    const dir = s.direction || 'NEUTRAL —';
+    const conf= s.confidence || '—';
+    const upP = pct(s.proba?.UP);
+    const neuP= pct(s.proba?.NEUTRAL);
+    const dnP = pct(s.proba?.DOWN);
+    const arrow = dir.includes('UP') ? '↑' : dir.includes('DOWN') ? '↓' : '—';
+    const dirLabel = dir.replace(' ↑','').replace(' ↓','').replace(' —','');
+    const confNum = parseFloat((conf||'0').replace('%',''));
+    const confColor = confNum >= 70 ? 'up-color' : confNum >= 60 ? 'gold-color' : 'neu-color';
+    return `
+    <div class="card ${cardClass(dir)}" data-tf="${tf}">
+      <div class="card-tf">Timeframe · ${tf}</div>
+      <div class="card-dir ${dirClass(dir)}">${arrow} ${dirLabel}</div>
+      <div class="card-conf">Confidence <b class="${confColor}">${conf}</b></div>
+      <div class="proba-bar">
+        <div class="seg" style="width:${upP}%;background:var(--up)"></div>
+        <div class="seg" style="width:${neuP}%;background:var(--neu)"></div>
+        <div class="seg" style="width:${dnP}%;background:var(--down)"></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><div class="lbl">Entry</div><div class="val gold-color">${fmt(s.entry)}</div></div>
+        <div class="field"><div class="lbl">Pips Est</div><div class="val">${s.pips_target!=null?'~'+s.pips_target:s.pips_est!=null?'~'+s.pips_est:'—'}</div></div>
+        <div class="field"><div class="lbl">Stop Loss</div><div class="val down-color">${fmt(s.SL)}</div></div>
+        <div class="field"><div class="lbl">Take Profit</div><div class="val up-color">${fmt(s.TP)}</div></div>
+      </div>
+      ${s.RR ? `<div class="rr-badge">R:R = 1 : ${s.RR}</div>` : ''}
+      <div style="margin-top:12px;font-size:10px;color:var(--muted);display:flex;gap:10px">
+        <span class="up-color">UP ${s.proba?.UP||'—'}</span>
+        <span class="neu-color">NEU ${s.proba?.NEUTRAL||'—'}</span>
+        <span class="down-color">DWN ${s.proba?.DOWN||'—'}</span>
+      </div>
+      ${s.time ? `<div class="card-updated">อัปเดต: ${formatTime(s.time)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function renderIndicators(data) {
+  const inds = data.indicators || [];
+  if (!inds.length) {
+    document.getElementById('ind-rows').innerHTML =
+      '<div style="padding:14px 20px;color:var(--muted)">รอข้อมูล indicator...</div>';
+    return;
+  }
+  document.getElementById('ind-rows').innerHTML = inds.map(ind => {
+    const range    = ind.max - ind.min;
+    const barPct   = Math.max(0, Math.min(100, ((ind.value - ind.min) / range) * 100));
+    const barColor = ind.sigClass === 'up-color'   ? 'var(--up)'   :
+                     ind.sigClass === 'down-color' ? 'var(--down)' :
+                     ind.sigClass === 'gold-color' ? 'var(--gold)' : 'var(--neu)';
+    return `
+    <div class="ind-row">
+      <div class="ind-name">${ind.name}</div>
+      <div class="ind-bar-wrap"><div class="ind-bar" style="width:${barPct}%;background:${barColor}"></div></div>
+      <div class="ind-val">${Number(ind.value).toFixed(1)}</div>
+      <div class="ind-val" style="color:var(--muted)">${ind.min}–${ind.max}</div>
+      <div class="ind-sig ${ind.sigClass}">${ind.signal}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderLog(data) {
+  const log = data.log || [];
+  if (!log.length) {
+    document.getElementById('log-rows').innerHTML =
+      '<div style="padding:16px 20px;color:var(--muted)">ยังไม่มี signal วันนี้</div>';
+    return;
+  }
+  document.getElementById('log-rows').innerHTML = log.map(l => {
+    const tagClass = (l.dir||'').includes('UP') ? 'tag-up' : (l.dir||'').includes('DOWN') ? 'tag-down' : 'tag-neu';
+    return `
+    <div class="log-row">
+      <div style="color:var(--muted)">${l.time||'—'}</div>
+      <div>${l.tf||'—'}</div>
+      <div><span class="tag ${tagClass}">${l.dir||'—'}</span></div>
+      <div class="gold-color">${l.entry!=null?Number(l.entry).toFixed(2):'—'}</div>
+      <div class="down-color">${l.sl!=null?Number(l.sl).toFixed(2):'—'}</div>
+      <div class="up-color">${l.tp!=null?Number(l.tp).toFixed(2):'—'}</div>
+      <div>${l.conf||'—'}</div>
+    </div>`;
+  }).join('');
+}
+
+// ════════════════════════════════════════════════════════
+//  MAIN LOOP
+// ════════════════════════════════════════════════════════
+
+async function refresh() {
+  const data = await fetchData();
+  if (!data) {
+    document.getElementById('last-update').textContent = 'เชื่อมต่อไม่ได้...';
+    return;
+  }
+  renderTicker(data);
+  renderCards(data);
+  renderIndicators(data);
+  renderLog(data);
+  checkNewSignals(data);  // ← ตรวจ signal ใหม่ + แจ้งเตือน
+}
+
+// init
+updateNotifBtn();
+if (Notification.permission === 'granted') notifEnabled = true;
+refresh();
+setInterval(refresh, REFRESH_MS);
+</script>
+</body>
+</html>

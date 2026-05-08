@@ -1,0 +1,113 @@
+{
+  "sentiment": {
+    "bias": "BULLISH",
+    "avg_net_score": 1.7,
+    "bull_count": 3,
+    "bear_count": 0,
+    "neutral_count": 7,
+    "total_articles": 10,
+    "bull_pct": 30.0,
+    "bear_pct": 0.0,
+    "top_bullish": [
+      {
+        "title": "GBP/USD trips down below 1.3350 as Oil surges, Fed outlook boosts US Dollar",
+        "score": 8,
+        "keywords": [
+          "rate cut",
+          "rate cuts",
+          "war"
+        ]
+      },
+      {
+        "title": "Banxico seen holding rates at 7% amid war-driven inflation risks",
+        "score": 5,
+        "keywords": [
+          "inflation",
+          "war"
+        ]
+      },
+      {
+        "title": "Middle East Conflict Latest: Trump gives Iran 48-hour ultimatum to open Strait of Hormuz",
+        "score": 3,
+        "keywords": [
+          "war",
+          "conflict"
+        ]
+      }
+    ],
+    "top_bearish": [],
+    "updated": "2026-03-22T20:37:04.806124+00:00"
+  },
+  "articles": [
+    {
+      "title": "Middle East Conflict Latest: Trump gives Iran 48-hour ultimatum to open Strait of Hormuz",
+      "summary": "Here is a rundown of latest headlines surrounding the crisis in the Middle East as the United States (US) and Israel’s war against Iran enters the fourth week:",
+      "url": "https://www.fxstreet.com/news/middle-east-conflict-latest-trump-gives-iran-48-hour-ultimatum-to-open-strait-of-hormuz-202603221433",
+      "pub": "Sun, 22 Mar 2026 14:33:10 Z",
+      "source": "www.fxstreet.com"
+    },
+    {
+      "title": "Banxico seen holding rates at 7% amid war-driven inflation risks",
+      "summary": "A Reuters poll revealed that the Bank of Mexico, also known as Banxico, is expected to keep interest rates steady at 7% at the March 26 meeting amid concerns about the Middle East war.",
+      "url": "https://www.fxstreet.com/news/banxico-seen-holding-rates-at-7-amid-war-driven-inflation-risks-202603201928",
+      "pub": "Fri, 20 Mar 2026 21:02:12 Z",
+      "source": "www.fxstreet.com"
+    },
+    {
+      "title": "Forecasting the upcoming week: Hawkish Fed meets escalating Iran war",
+      "summary": "The US Dollar (USD)i weakened this week, with the US Dollar Index (DXY) slipping back below 100.00 to 99.60 on Friday after a surge in the middle of the week driven by the Federal Reserve's (Fed) decision to hold rates in the 3.50%-3.75% range.",
+      "url": "https://www.fxstreet.com/news/forecasting-the-upcoming-week-hawkish-fed-meets-escalating-iran-war-202603202012",
+      "pub": "Fri, 20 Mar 2026 20:12:11 Z",
+      "source": "www.fxstreet.com"
+    },
+    {
+      "title": "Gold slips near $4,500 as Oil rally and US yields weigh on bullion",
+      "summary": "Gold (XAU/USD) price extended on Friday its losses for the eighth straight day, poised to end the week down by more than 8.50% as Oil prices continued to rally, boosting the haven appeal of the Greenback.",
+      "url": "https://www.fxstreet.com/news/gold-slips-near-4-500-as-oil-rally-and-us-yields-weigh-on-bullion-202603201928",
+      "pub": "Fri, 20 Mar 2026 19:28:41 Z",
+      "source": "www.fxstreet.com"
+    },
+    {
+      "title": "USD/CHF flat as Fed outlook and Oil-driven USD demand limit downside",
+      "summary": "The Swiss Franc (CHF) trades flat against the US Dollar (USD) on Friday, reversing part of its earlier gains as the Greenback eases slightly from daily highs. At the time of writing, USD/CHF is trading around 0.7878 after briefly touching the 0.7900 mark.",
+      "url": "https://www.fxstreet.com/news/usd-chf-flat-as-fed-outlook-and-oil-driven-usd-demand-limit-downside-202603201832",
+      "pub": "Fri, 20 Mar 2026 18:32:39 Z",
+      "source": "www.fxstreet.com"
+    },
+    {
+      "title": "Gold set for third weekly loss as 'higher-for-longer' interest rate outlook weigh",
+      "summary": "Gold (XAU/USD) extends losses on Friday following a sharp two-day decline that pushed prices to their lowest level since early February, near the $4,500 mark.",
+      "url": "https://www.fxstreet.com/news/gold-remains-under-pressure-as-global-interest-rate-outlook-weighs-on-demand-202603201219",
+      "pub": "Fri, 20 Mar 2026 16:47:22 Z",
+      "source": "www.fxstreet.com"
+    },
+    {
+      "title": "Dow Jones Industrial Average slides as Iran war, hawkish Fed drive fourth losing week",
+      "summary": "The Dow Jones Industrial Average (DJIA) tumbled around 257 points, or 0.6%, on Friday as all three major US indices tracked toward a fourth consecutive losing week. The S&P 500 fell 0.8%, while the Nasdaq Composite underperformed with a decline of 1.2%.",
+      "url": "https://www.fxstreet.com/news/dow-jones-industrial-average-slides-as-iran-war-hawkish-fed-drive-fourth-losing-week-202603201633",
+      "pub": "Fri, 20 Mar 2026 16:33:17 Z",
+      "source": "www.fxstreet.com"
+    },
+    {
+      "title": "EUR/USD Price Forecast: Pair struggles below 1.1600 as sellers maintain control",
+      "summary": "EUR/USD trades with a mild downside bias on Friday as a modest rebound in the US Dollar (USD) weighs on the Euro (EUR), with price action lacking follow-through buying after failing to sustain a break above the 1.1600 mark.",
+      "url": "https://www.fxstreet.com/news/eur-usd-price-forecast-struggles-below-11600-as-sellers-maintain-control-202603201611",
+      "pub": "Fri, 20 Mar 2026 16:11:58 Z",
+      "source": "www.fxstreet.com"
+    },
+    {
+      "title": "GBP/USD trips down below 1.3350 as Oil surges, Fed outlook boosts US Dollar",
+      "summary": "GBP/USD trims some of its previous-day gains on Friday, down by 0.84%, as traders turn risk-averse amid an escalation of the Middle East war and price in no rate cuts by the Federal Reserve (Fed) in 2026. At the time of writing, the pair trades below 1.3350 after hitting a daily high of 1.3442.",
+      "url": "https://www.fxstreet.com/news/gbp-usd-trips-down-below-13350-as-oil-surges-fed-outlook-boosts-usd-202603201548",
+      "pub": "Fri, 20 Mar 2026 15:48:31 Z",
+      "source": "www.fxstreet.com"
+    },
+    {
+      "title": "AUD/USD falls as geopolitical tensions overshadow RBA rate hike",
+      "summary": "AUD/USD trades lower around 0.7040 on Friday at the time of writing, down 0.68% on the day, as the pair is pressured by a return of safe-haven demand despite supportive domestic factors in Australia.",
+      "url": "https://www.fxstreet.com/news/aud-usd-falls-as-geopolitical-tensions-overshadow-rba-rate-hike-202603201524",
+      "pub": "Fri, 20 Mar 2026 15:24:15 Z",
+      "source": "www.fxstreet.com"
+    }
+  ]
+}

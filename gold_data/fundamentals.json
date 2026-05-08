@@ -1,0 +1,78 @@
+{
+  "dxy": {
+    "value": 99.503,
+    "change": -0.053,
+    "change_pct": -0.053,
+    "high_5d": 100.314,
+    "low_5d": 98.975,
+    "ma20": 98.939,
+    "trend": "bullish",
+    "gold_bias": "bearish",
+    "updated": "2026-03-22T20:36:38.844930+00:00"
+  },
+  "us10y": {
+    "value": 4.391,
+    "change": 0.005,
+    "ma20": 4.1471,
+    "trend": "rising",
+    "gold_bias": "bearish",
+    "updated": "2026-03-22T20:36:38.978118+00:00"
+  },
+  "cpi": {
+    "latest_index": 327.46,
+    "yoy_pct": 2.66,
+    "mom_pct": 0.27,
+    "date": "2026-02-01",
+    "trend": "falling",
+    "gold_bias": "bullish",
+    "note": "CPI YoY=2.66% ↑ inflation hedge",
+    "updated": "2026-03-22T20:36:39.958086+00:00"
+  },
+  "pce": {
+    "yoy_pct": 2.83,
+    "date": "2026-01-01",
+    "gold_bias": "bullish",
+    "updated": "2026-03-22T20:36:40.679058+00:00"
+  },
+  "real_yield": {
+    "value": 1.88,
+    "date": "2026-03-19",
+    "gold_bias": "bearish",
+    "note": "Real yield 1.88%",
+    "updated": "2026-03-22T20:36:41.392357+00:00"
+  },
+  "fomc": {
+    "next_meeting": "2026-04-29",
+    "days_until": 38,
+    "upcoming": [
+      "2026-04-29",
+      "2026-06-17",
+      "2026-07-29",
+      "2026-09-16"
+    ],
+    "current_rate": 3.64,
+    "high_volatility": false,
+    "gold_note": "ประชุม Fed อีก 38 วัน",
+    "updated": "2026-03-22T20:36:42.068756+00:00"
+  },
+  "fed_rate": {
+    "current_rate": 3.64,
+    "trend": "cutting",
+    "gold_bias": "bullish",
+    "note": "Fed rate trend: cutting (3.64%)",
+    "updated": "2026-03-22T20:36:42.771975+00:00"
+  },
+  "score": {
+    "raw_score": -3,
+    "normalized": -37.5,
+    "bias": "BEARISH",
+    "signals": [
+      "DXY ขึ้น → ทองถูกกดดัน",
+      "Yield ขึ้น → ทองถูกกดดัน",
+      "Real yield สูง → ทองแรงกดดัน",
+      "CPI สูง → inflation hedge",
+      "Fed กำลังลด rate → bullish gold"
+    ],
+    "updated": "2026-03-22T20:36:42.772008+00:00"
+  }
+}

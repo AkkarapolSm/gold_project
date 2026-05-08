@@ -1,0 +1,8 @@
+{"time": "2026-03-23T23:52:10.477812", "action": "OPEN_FAIL", "tf": "M15", "direction": "DOWN ↓", "price": 4379.455, "sl": 4449.53, "tp": 4271.19, "conf": 81.7, "ticket": 0, "lot": 0.01, "note": "retcode=10027"}
+{"time": "2026-03-23T23:53:10.525686", "action": "OPEN_FAIL", "tf": "M15", "direction": "DOWN ↓", "price": 4385.698, "sl": 4451.6, "tp": 4273.26, "conf": 81.5, "ticket": 0, "lot": 0.01, "note": "retcode=10027"}
+{"time": "2026-03-23T23:54:10.556138", "action": "OPEN_FAIL", "tf": "M15", "direction": "DOWN ↓", "price": 4389.307, "sl": 4454.54, "tp": 4276.2, "conf": 81.2, "ticket": 0, "lot": 0.01, "note": "retcode=10027"}
+{"time": "2026-03-23T23:55:10.625778", "action": "OPEN_FAIL", "tf": "M15", "direction": "DOWN ↓", "price": 4389.518, "sl": 4453.8, "tp": 4275.46, "conf": 81.5, "ticket": 0, "lot": 0.01, "note": "retcode=10017"}
+{"time": "2026-03-23T23:56:10.685460", "action": "OPEN_FAIL", "tf": "M15", "direction": "DOWN ↓", "price": 4385.807, "sl": 4453.41, "tp": 4275.07, "conf": 81.2, "ticket": 0, "lot": 0.01, "note": "retcode=10027"}
+{"time": "2026-03-23T23:56:36.447850", "action": "OPEN_FAIL", "tf": "M15", "direction": "DOWN ↓", "price": 4383.683, "sl": 4453.41, "tp": 4275.07, "conf": 81.2, "ticket": 0, "lot": 0.01, "note": "retcode=10017"}
+{"time": "2026-03-23T23:57:36.534010", "action": "OPEN_FAIL", "tf": "M15", "direction": "DOWN ↓", "price": 4375.308, "sl": 4449.41, "tp": 4271.07, "conf": 81.2, "ticket": 0, "lot": 0.01, "note": "retcode=10017"}
+{"time": "2026-03-23T23:58:36.602103", "action": "OPEN_FAIL", "tf": "M15", "direction": "DOWN ↓", "price": 4375.567, "sl": 4444.08, "tp": 4265.74, "conf": 80.7, "ticket": 0, "lot": 0.01, "note": "retcode=10017"}
