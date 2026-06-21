@@ -13,6 +13,7 @@
 """
 
 import json
+import os
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -27,6 +28,9 @@ from fastapi.staticfiles import StaticFiles
 DATA_DIR  = Path("./gold_data")
 MODEL_DIR = Path("./gold_models")
 
+# magic number ของบอทเทรด (ต้องตรงกับ gold_trader.py เพื่อ filter ออเดอร์ของบอท)
+MAGIC = int(os.getenv("TRADE_MAGIC", "20250323"))
+
 app = FastAPI(title="Gold Signal Dashboard")
 
 # serve dashboard HTML
@@ -35,6 +39,11 @@ app.mount("/static", StaticFiles(directory="."), name="static")
 @app.get("/")
 def index():
     return FileResponse("dashboard.html")
+
+
+@app.get("/trades")
+def trades_page():
+    return FileResponse("trades.html")
 
 
 # ── API: ดึง signals ทุก TF ─────────────────────────────────
@@ -173,6 +182,53 @@ def get_tick():
     return JSONResponse({})
 
 
+# ── API: ประวัติการเข้าออเดอร์ของบอท + ออเดอร์ที่เปิดอยู่ ──────
+@app.get("/api/trades")
+def get_trades():
+    """อ่าน trade log ของบอท (trades_*.jsonl) + ออเดอร์ที่เปิดอยู่จาก MT5"""
+    log_dir = DATA_DIR / "trade_logs"
+    trades = []
+    if log_dir.exists():
+        for fp in sorted(log_dir.glob("trades_*.jsonl")):
+            with open(fp, encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        trades.append(json.loads(line))
+                    except Exception:
+                        pass
+
+    trades.sort(key=lambda x: x.get("time", ""), reverse=True)
+
+    # นับสรุปจาก log
+    n_open  = sum(1 for t in trades if t.get("action") == "OPEN")
+    n_fail  = sum(1 for t in trades if t.get("action") == "OPEN_FAIL")
+    n_close = sum(1 for t in trades if t.get("action") == "CLOSE")
+
+    # ออเดอร์ที่เปิดอยู่ + floating P/L (background loop เขียนไว้ใน realtime_signals.json)
+    bot_orders, bot_profit = [], 0.0
+    sig_path = DATA_DIR / "realtime_signals.json"
+    if sig_path.exists():
+        try:
+            with open(sig_path, encoding="utf-8") as f:
+                d = json.load(f)
+            bot_orders = d.get("bot_orders", [])
+            bot_profit = d.get("bot_profit", 0.0)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            pass
+
+    return JSONResponse({
+        "trades": trades[:200],
+        "orders": bot_orders,
+        "summary": {
+            "open"       : n_open,
+            "fail"       : n_fail,
+            "close"      : n_close,
+            "open_now"   : len(bot_orders),
+            "floating_pl": bot_profit,
+        },
+    })
+
+
 # ── Background: รัน pipeline + predict ทุกนาที ────────────────
 def _background_loop():
     """รัน pipeline + predict + alert ใน background thread"""
@@ -184,6 +240,16 @@ def _background_loop():
         if not connect_mt5():
             print("[BG] MT5 ไม่ได้เชื่อมต่อ — background loop หยุด")
             return
+
+        # Telegram notifier (signal channel) — no-op ถ้ายังไม่ตั้งค่าใน .env
+        try:
+            from gold_telegram import TelegramNotifier
+            tg = TelegramNotifier()
+            if tg.enabled():
+                print("[BG] Telegram signal alert: เปิดใช้งาน")
+        except Exception as e:
+            tg = None
+            print(f"[BG] Telegram init error: {e}")
 
         def job():
             signals_by_tf = {}
@@ -199,6 +265,13 @@ def _background_loop():
                 except Exception as e:
                     print(f"[BG] {tf_name} error: {e}")
 
+            # ส่งสัญญาณเข้า Telegram (ช่อง signal) — มี dedup + กรอง conf ในตัว
+            if tg is not None:
+                try:
+                    tg.send_signals(signals_by_tf)
+                except Exception as e:
+                    print(f"[BG] Telegram signal error: {e}")
+
             # ดึง tick
             tick = {}
             try:
@@ -207,8 +280,32 @@ def _background_loop():
             except Exception:
                 pass
 
+            # ดึงออเดอร์ที่เปิดอยู่ของบอท (filter ด้วย magic number)
+            bot_orders, bot_profit = [], 0.0
+            try:
+                positions = mt5.positions_get()
+                for p in (positions or []):
+                    if p.magic != MAGIC:
+                        continue
+                    typ = "BUY" if p.type == mt5.ORDER_TYPE_BUY else "SELL"
+                    bot_orders.append({
+                        "ticket"    : p.ticket,
+                        "type"      : typ,
+                        "comment"   : p.comment,
+                        "volume"    : p.volume,
+                        "price_open": round(p.price_open, 2),
+                        "sl"        : round(p.sl, 2),
+                        "tp"        : round(p.tp, 2),
+                        "profit"    : round(p.profit, 2),
+                        "time"      : datetime.fromtimestamp(p.time).strftime("%H:%M"),
+                    })
+                    bot_profit += p.profit
+            except Exception as e:
+                print(f"[BG] orders error: {e}")
+
             # บันทึก — ใช้ utf-8 เพื่อรองรับ emoji และ unicode
             out = {"tick": tick, "signals_by_tf": signals_by_tf,
+                   "bot_orders": bot_orders, "bot_profit": round(bot_profit, 2),
                    "updated": datetime.now().isoformat()}
             with open(DATA_DIR / "realtime_signals.json", "w", encoding="utf-8") as f:
                 json.dump(out, f, ensure_ascii=False, indent=2, default=str)

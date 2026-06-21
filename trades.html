@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>XAUUSD · Bot Trade Orders</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --gold:#D4A843;--gold-lt:#F0C96B;--gold-dk:#8B6914;
+    --up:#2ECC8A;--down:#E8455A;--neu:#7A8599;
+    --bg:#080C12;--bg1:#0D1420;--bg2:#111B2B;--bg3:#172236;
+    --border:rgba(212,168,67,0.15);--text:#E8ECF4;--muted:#5A6880;
+    --font-display:'Syne',sans-serif;--font-mono:'IBM Plex Mono',monospace;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--font-mono);font-size:13px;min-height:100vh;overflow-x:hidden}
+  body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(212,168,67,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(212,168,67,.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
+  .wrap{position:relative;z-index:1;max-width:1200px;margin:0 auto;padding:20px 24px 60px}
+  header{display:flex;align-items:center;justify-content:space-between;padding:18px 0 24px;border-bottom:1px solid var(--border);margin-bottom:28px}
+  .logo{font-family:var(--font-display);font-size:22px;font-weight:800;letter-spacing:-.5px;color:var(--gold-lt)}
+  .logo span{color:var(--muted);font-weight:400;font-size:13px;margin-left:8px;font-family:var(--font-mono)}
+  .header-right{display:flex;align-items:center;gap:16px}
+  .nav-link{padding:6px 14px;border-radius:20px;border:1px solid var(--border);background:var(--bg2);color:var(--muted);font-size:11px;text-decoration:none;letter-spacing:.5px;transition:all .2s}
+  .nav-link:hover{border-color:var(--gold);color:var(--gold)}
+  .live-badge{display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:1.5px;color:var(--up);text-transform:uppercase}
+  .live-dot{width:7px;height:7px;border-radius:50%;background:var(--up);box-shadow:0 0 8px var(--up);animation:pulse 1.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(.85)}}
+
+  .update-bar{display:flex;justify-content:space-between;align-items:center;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 20px;margin-bottom:24px;font-size:11px;color:var(--muted)}
+  .update-bar b{color:var(--gold)}
+
+  /* STAT CARDS */
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:28px}
+  .stat{background:var(--bg1);border:1px solid var(--border);border-radius:12px;padding:18px 20px;animation:fadeUp .4s ease both}
+  .stat:nth-child(2){animation-delay:.06s}.stat:nth-child(3){animation-delay:.12s}.stat:nth-child(4){animation-delay:.18s}.stat:nth-child(5){animation-delay:.24s}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+  .stat .lbl{font-size:10px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;margin-bottom:10px}
+  .stat .num{font-family:var(--font-display);font-size:30px;font-weight:800;letter-spacing:-1px;line-height:1}
+
+  .section-title{font-family:var(--font-display);font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin:24px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+
+  .table{background:var(--bg1);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+  .row{display:grid;gap:8px;padding:10px 20px;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px;align-items:center}
+  .row:last-child{border-bottom:none}
+  .row.header{background:var(--bg2);color:var(--muted);font-size:10px;letter-spacing:1px;text-transform:uppercase}
+  .orders-grid{grid-template-columns:60px 70px 70px 90px 90px 90px 1fr 100px}
+  .hist-grid{grid-template-columns:70px 90px 50px 80px 80px 80px 80px 60px 1fr}
+  .up-color{color:var(--up)}.down-color{color:var(--down)}.neu-color{color:var(--neu)}.gold-color{color:var(--gold)}
+  .tag{display:inline-block;padding:2px 8px;border-radius:12px;font-size:10px;letter-spacing:.5px;font-weight:500}
+  .tag-up{background:rgba(46,204,138,.15);color:var(--up)}
+  .tag-down{background:rgba(232,69,90,.15);color:var(--down)}
+  .tag-neu{background:rgba(122,133,153,.15);color:var(--neu)}
+  .tag-fail{background:rgba(232,69,90,.10);color:var(--down)}
+  .tag-close{background:rgba(212,168,67,.15);color:var(--gold)}
+  .empty{padding:28px 20px;text-align:center;color:var(--muted);font-size:12px}
+  .note{color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  footer{text-align:center;color:var(--muted);font-size:11px;padding-top:32px;letter-spacing:.5px}
+  @media(max-width:768px){.stats{grid-template-columns:repeat(2,1fr)}.orders-grid,.hist-grid{grid-template-columns:60px 60px 70px 80px 1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">GOLDTRACK <span>· bot trade orders</span></div>
+    <div class="header-right">
+      <a class="nav-link" href="/">← Signal Dashboard</a>
+      <div class="live-badge"><div class="live-dot"></div> LIVE</div>
+    </div>
+  </header>
+
+  <div class="update-bar">
+    <span>อัปเดตล่าสุด: <b id="last-update">—</b></span>
+    <span>รีเฟรชอัตโนมัติทุก <b>15 วินาที</b> &nbsp;|&nbsp; Magic <b id="magic">บอทเทรด</b></span>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="lbl">เปิดอยู่ตอนนี้</div><div class="num gold-color" id="s-open-now">—</div></div>
+    <div class="stat"><div class="lbl">Floating P/L</div><div class="num" id="s-pl">—</div></div>
+    <div class="stat"><div class="lbl">เปิดสำเร็จรวม</div><div class="num up-color" id="s-open">—</div></div>
+    <div class="stat"><div class="lbl">เปิดไม่สำเร็จ</div><div class="num down-color" id="s-fail">—</div></div>
+    <div class="stat"><div class="lbl">ปิดแล้ว</div><div class="num neu-color" id="s-close">—</div></div>
+  </div>
+
+  <div class="section-title">📈 ออเดอร์ที่เปิดอยู่</div>
+  <div class="table">
+    <div class="row header orders-grid">
+      <div>Ticket</div><div>Type</div><div>Lot</div><div>Entry</div>
+      <div>SL</div><div>TP</div><div>Comment</div><div style="text-align:right">Profit</div>
+    </div>
+    <div id="orders-rows"><div class="empty">กำลังโหลด…</div></div>
+  </div>
+
+  <div class="section-title">🗂 ประวัติการเข้าออเดอร์</div>
+  <div class="table">
+    <div class="row header hist-grid">
+      <div>เวลา</div><div>Action</div><div>TF</div><div>ทิศทาง</div>
+      <div>Price</div><div>SL</div><div>TP</div><div>Conf.</div><div>Note</div>
+    </div>
+    <div id="hist-rows"><div class="empty">กำลังโหลด…</div></div>
+  </div>
+
+  <footer>XAUUSD Bot Trade Monitor · ใช้เพื่อการวิจัยเท่านั้น ไม่ใช่คำแนะนำทางการเงิน</footer>
+</div>
+
+<script>
+const API = '/api/trades';
+
+function dirClass(d){ d=d||''; if(d.includes('UP'))return'up-color'; if(d.includes('DOWN'))return'down-color'; return'neu-color'; }
+function fmt(v){ return (v!=null && v!==0) ? Number(v).toFixed(2) : (v===0?'0.00':'—'); }
+function actionTag(a){
+  if(a==='OPEN')      return '<span class="tag tag-up">OPEN</span>';
+  if(a==='OPEN_FAIL') return '<span class="tag tag-fail">FAIL</span>';
+  if(a==='CLOSE')     return '<span class="tag tag-close">CLOSE</span>';
+  return '<span class="tag tag-neu">'+(a||'?')+'</span>';
+}
+
+async function fetchData(){
+  try{
+    const r = await fetch(API, { signal: AbortSignal.timeout(5000) });
+    if(!r.ok) throw new Error('not ok');
+    return await r.json();
+  }catch{ return null; }
+}
+
+function renderOrders(orders){
+  const el = document.getElementById('orders-rows');
+  if(!orders || !orders.length){ el.innerHTML = '<div class="empty">ไม่มีออเดอร์ที่เปิดอยู่</div>'; return; }
+  el.innerHTML = orders.map(o=>{
+    const cls = o.type==='BUY' ? 'up-color' : 'down-color';
+    const plCls = o.profit>0 ? 'up-color' : (o.profit<0 ? 'down-color' : 'neu-color');
+    return `<div class="row orders-grid">
+      <div>#${o.ticket}</div>
+      <div class="${cls}">${o.type}</div>
+      <div>${o.volume}</div>
+      <div>${fmt(o.price_open)}</div>
+      <div>${fmt(o.sl)}</div>
+      <div>${fmt(o.tp)}</div>
+      <div class="note">${o.comment||'—'}</div>
+      <div class="${plCls}" style="text-align:right">${o.profit>0?'+':''}${fmt(o.profit)}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderHist(trades){
+  const el = document.getElementById('hist-rows');
+  if(!trades || !trades.length){ el.innerHTML = '<div class="empty">ยังไม่มีประวัติการเข้าออเดอร์</div>'; return; }
+  el.innerHTML = trades.map(t=>{
+    const time = (t.time||'').includes('T') ? t.time.split('T')[1].slice(0,8) : (t.time||'').slice(0,8);
+    return `<div class="row hist-grid">
+      <div>${time}</div>
+      <div>${actionTag(t.action)}</div>
+      <div>${t.tf||'—'}</div>
+      <div class="${dirClass(t.direction)}">${t.direction||'—'}</div>
+      <div>${fmt(t.price)}</div>
+      <div>${fmt(t.sl)}</div>
+      <div>${fmt(t.tp)}</div>
+      <div>${t.conf!=null ? t.conf+'%' : '—'}</div>
+      <div class="note">${t.note||(t.ticket?'#'+t.ticket:'—')}</div>
+    </div>`;
+  }).join('');
+}
+
+async function refresh(){
+  const data = await fetchData();
+  if(!data){ document.getElementById('last-update').textContent = 'เชื่อมต่อไม่ได้...'; return; }
+  const s = data.summary || {};
+  document.getElementById('s-open-now').textContent = s.open_now ?? 0;
+  const pl = s.floating_pl ?? 0;
+  const plEl = document.getElementById('s-pl');
+  plEl.textContent = (pl>0?'+':'')+Number(pl).toFixed(2);
+  plEl.className = 'num ' + (pl>0?'up-color':(pl<0?'down-color':'neu-color'));
+  document.getElementById('s-open').textContent  = s.open  ?? 0;
+  document.getElementById('s-fail').textContent  = s.fail  ?? 0;
+  document.getElementById('s-close').textContent = s.close ?? 0;
+  renderOrders(data.orders);
+  renderHist(data.trades);
+  document.getElementById('last-update').textContent = new Date().toLocaleTimeString('th-TH');
+}
+
+refresh();
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+MetaTrader5==5.0.5640
+pandas==3.0.1
+numpy==2.4.3
+scipy==1.17.1
+ta==0.11.0
+scikit-learn==1.8.0
+xgboost==3.2.0
+lightgbm==4.6.0
+torch==2.10.0
+joblib==1.5.3
+yfinance==1.2.0
+fastapi==0.135.1
+uvicorn==0.42.0
+schedule==1.2.2
+requests==2.32.5
+python-dotenv==1.2.2

@@ -78,6 +78,16 @@ logging.basicConfig(
 )
 log = logging.getLogger("GoldTrader")
 
+# Telegram notifier (order channel) — no-op ถ้ายังไม่ตั้งค่าใน .env
+try:
+    from gold_telegram import TelegramNotifier
+    tg = TelegramNotifier()
+    if tg.enabled():
+        log.info("Telegram order alert: เปิดใช้งาน")
+except Exception as e:
+    tg = None
+    log.warning(f"Telegram init error: {e}")
+
 
 # ════════════════════════════════════════════════════════════
 #  MT5 CONNECTION
@@ -283,6 +293,13 @@ def open_order(parsed: dict) -> bool:
         )
         _log_trade("OPEN", tf, direction, price, sl, tp,
                    parsed["conf"], result.order)
+        if tg:
+            try:
+                tg.send_order("OPEN", tf, direction, round(price, 2),
+                              sl, tp, round(parsed["conf"], 1),
+                              result.order, lot=LOT_SIZE)
+            except Exception as e:
+                log.warning(f"Telegram order error: {e}")
         return True
     else:
         log.error(
@@ -331,6 +348,13 @@ def close_order(position) -> bool:
         _log_trade("CLOSE", position.comment.split("_")[1] if "_" in position.comment else "?",
                    "CLOSE", price, 0, 0, 0, position.ticket,
                    note=f"profit={profit:+.2f}")
+        if tg:
+            try:
+                tg.send_order("CLOSE", "-", "CLOSE", round(price, 2),
+                              0, 0, 0, position.ticket,
+                              note=f"Profit: {profit:+.2f} USD")
+            except Exception as e:
+                log.warning(f"Telegram order error: {e}")
         return True
     else:
         retcode = result.retcode if result else "None"

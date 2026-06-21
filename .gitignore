@@ -1,0 +1,13 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# Generated data / models / logs
+gold_data/
+gold_models/
+gold_wfo/
+{out}')
