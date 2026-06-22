@@ -9,16 +9,24 @@
    MT5_LOGIN=213596035
    MT5_PASSWORD=your_password
    MT5_SERVER=Exness-MT5Real
-   TRADE_LOT=0.01           # lot size ต่อ order (default 0.01)
+   TRADE_LOT=0.01           # lot size คงที่ (ใช้เมื่อ TRADE_RISK_PCT=0)
    TRADE_MIN_CONF=80.0      # confidence ขั้นต่ำ (default 80%)
    TRADE_MAX_ORDERS=5       # max open orders รวมทุก TF (default 5)
    TRADE_MAGIC=20250323     # magic number สำหรับ identify orders
 
+   # ── Risk management (A) ──
+   TRADE_RISK_PCT=0               # % เสี่ยงต่อไม้ (>0 = คิด lot จาก SL, 0 = ใช้ TRADE_LOT คงที่)
+   TRADE_DAILY_LOSS_LIMIT_PCT=5   # เพดานขาดทุนต่อวัน (% ของ balance ต้นวัน, 0=ปิด)
+   TRADE_MAX_DRAWDOWN_PCT=10      # เพดาน drawdown จาก peak equity (%, 0=ปิด)
+   TRADE_CLOSE_ON_HALT=false      # true = ปิดออเดอร์ทั้งหมดเมื่อโดน halt
+   TRADE_TICK_MAX_AGE=120         # tick เก่าเกินกี่วินาที = ถือว่าตลาดปิด
+
  วิธีใช้:
-   python gold_trader.py            # รัน bot loop ทุก 1 นาที
-   python gold_trader.py --once     # รันครั้งเดียวแล้วออก
-   python gold_trader.py --status   # ดู open orders ปัจจุบัน
-   python gold_trader.py --closeall # ปิด orders ทั้งหมดของ bot
+   python gold_trader.py             # รัน bot loop ทุก 1 นาที
+   python gold_trader.py --once      # รันครั้งเดียวแล้วออก
+   python gold_trader.py --status    # ดู open orders + สถานะความเสี่ยง
+   python gold_trader.py --closeall  # ปิด orders ทั้งหมดของ bot
+   python gold_trader.py --reset-risk# ล้างสถานะความเสี่ยง (ปลด halt)
 
  หมายเหตุ:
    - bot จะอ่าน signal จาก gold_data/realtime_signals.json
@@ -26,11 +34,14 @@
    - Pyramid: เปิด order ซ้อนได้ ถ้า signal ใหม่ conf >= MIN_CONF
    - TP/SL: ใช้ค่าจาก signal (ATR-based) โดยตรง
    - MAX_ORDERS: safety limit กันเปิดมากเกินไป
+   - Risk guard: หยุดเปิดออเดอร์ใหม่อัตโนมัติเมื่อถึงเพดานขาดทุน/drawdown
+   - Market guard: ข้ามรอบเมื่อ tick ไม่สด (ตลาดปิด) กัน order ถูกปฏิเสธ
 =============================================================
 """
 
 import argparse
 import json
+import math
 import os
 import time
 import schedule
@@ -41,6 +52,8 @@ from pathlib import Path
 import MetaTrader5 as mt5
 import pandas as pd
 from dotenv import load_dotenv
+
+from gold_risk import RiskManager
 
 load_dotenv()
 
@@ -55,6 +68,14 @@ LOT_SIZE      = float(os.getenv("TRADE_LOT",         "0.01"))
 MIN_CONF      = float(os.getenv("TRADE_MIN_CONF",    "80.0"))
 MAX_ORDERS    = int(  os.getenv("TRADE_MAX_ORDERS",  "5"))
 MAGIC         = int(  os.getenv("TRADE_MAGIC",       "20250323"))
+
+# ── Risk management (A) ──────────────────────────────────
+RISK_PCT       = float(os.getenv("TRADE_RISK_PCT",             "0"))    # 0 = ใช้ LOT_SIZE คงที่
+DAILY_LOSS_PCT = float(os.getenv("TRADE_DAILY_LOSS_LIMIT_PCT", "5.0"))
+MAX_DD_PCT     = float(os.getenv("TRADE_MAX_DRAWDOWN_PCT",     "10.0"))
+CLOSE_ON_HALT  = os.getenv("TRADE_CLOSE_ON_HALT", "false").strip().lower() in ("1", "true", "yes", "on")
+TICK_MAX_AGE   = int(  os.getenv("TRADE_TICK_MAX_AGE",         "120"))  # วินาที
+RISK_STATE     = DATA_DIR / "risk_state.json"
 
 MT5_LOGIN     = int(os.getenv("MT5_LOGIN",    "0"))
 MT5_PASSWORD  = os.getenv("MT5_PASSWORD", "")
@@ -87,6 +108,12 @@ try:
 except Exception as e:
     tg = None
     log.warning(f"Telegram init error: {e}")
+
+# Risk manager (daily loss limit + max drawdown + auto-halt)
+risk = RiskManager(RISK_STATE, daily_loss_pct=DAILY_LOSS_PCT, max_dd_pct=MAX_DD_PCT)
+
+# ใช้ track ว่า tick เดินอยู่ไหม (robust กว่าเทียบ time ตรงๆ เพราะ broker มี offset)
+_tick_track = {"time": None, "seen_at": None}
 
 
 # ════════════════════════════════════════════════════════════
@@ -237,6 +264,88 @@ def normalize_price(price: float) -> float:
     return round(price, digits)
 
 
+# ── A2: Position sizing ตามทุน ──────────────────────────
+
+def calc_volume(entry: float, sl: float) -> float:
+    """
+    คำนวณ lot จาก % ความเสี่ยงต่อไม้ + ระยะ SL
+        risk_amount  = balance * RISK_PCT%
+        loss_per_lot = (|entry-sl| / tick_size) * tick_value
+        lot          = risk_amount / loss_per_lot   (ปัดลงตาม volume_step)
+    ถ้า RISK_PCT<=0 หรือคำนวณไม่ได้ → คืน LOT_SIZE คงที่
+    """
+    if RISK_PCT <= 0:
+        return LOT_SIZE
+
+    acc  = mt5.account_info()
+    info = mt5.symbol_info(SYMBOL)
+    if acc is None or info is None:
+        log.warning("calc_volume: ไม่มี account/symbol info — ใช้ LOT_SIZE")
+        return LOT_SIZE
+
+    sl_dist    = abs(float(entry) - float(sl))
+    tick_size  = info.trade_tick_size or info.point
+    tick_value = info.trade_tick_value
+    if sl_dist <= 0 or not tick_size or not tick_value:
+        log.warning("calc_volume: ค่าไม่พร้อม (sl_dist/tick) — ใช้ LOT_SIZE")
+        return LOT_SIZE
+
+    risk_amount  = acc.balance * RISK_PCT / 100.0
+    loss_per_lot = (sl_dist / tick_size) * tick_value
+    if loss_per_lot <= 0:
+        return LOT_SIZE
+
+    raw  = risk_amount / loss_per_lot
+    step = info.volume_step or 0.01
+    lot  = math.floor(raw / step) * step
+    lot  = max(info.volume_min, min(lot, info.volume_max))
+    lot  = round(lot, 2)
+
+    log.info(
+        f"Position sizing | risk {RISK_PCT:.2f}% = {risk_amount:.2f} USD | "
+        f"SL dist {sl_dist:.2f} | lot {lot} (raw {raw:.3f})"
+    )
+    return lot
+
+
+# ── A3: Market-hours guard ──────────────────────────────
+
+def is_market_open() -> tuple[bool, str]:
+    """
+    เช็กว่าตลาดเปิด + tick สดพอจะส่งออเดอร์ไหม
+    คืน (True, "ok") ถ้าพร้อม / (False, reason) ถ้าไม่พร้อม
+
+    ใช้ 2 ด่าน:
+      1) symbol trade_mode ต้องไม่ใช่ DISABLED
+      2) tick ต้องเดิน — ถ้า tick.time ค้างนานเกิน TICK_MAX_AGE = ตลาดปิด
+         (เทียบแบบ relative กันปัญหา broker server time มี offset)
+    """
+    info = mt5.symbol_info(SYMBOL)
+    if info is None:
+        return False, "ไม่มี symbol_info"
+    if info.trade_mode == mt5.SYMBOL_TRADE_MODE_DISABLED:
+        return False, "symbol ปิดการเทรด (trade_mode=DISABLED)"
+
+    tick = mt5.symbol_info_tick(SYMBOL)
+    if tick is None or (tick.bid == 0 and tick.ask == 0):
+        return False, "ไม่มี tick / ราคาเป็น 0"
+
+    now = time.time()
+    t   = getattr(tick, "time", 0)
+
+    # tick เดิน (เวลาเปลี่ยน) → สด, รีเซ็ตตัวจับเวลา
+    if _tick_track["time"] is None or t != _tick_track["time"]:
+        _tick_track["time"]    = t
+        _tick_track["seen_at"] = now
+        return True, "ok"
+
+    # tick.time เท่าเดิม → ดูว่าค้างมานานแค่ไหน
+    age = now - (_tick_track["seen_at"] or now)
+    if age > TICK_MAX_AGE:
+        return False, f"tick ค้าง {int(age)}s (ตลาดน่าจะปิด)"
+    return True, "ok"
+
+
 # ── เปิด Order ───────────────────────────────────────────
 
 def open_order(parsed: dict) -> bool:
@@ -254,6 +363,9 @@ def open_order(parsed: dict) -> bool:
         log.error("ไม่สามารถดึงราคาได้ — ข้าม")
         return False
 
+    # A2: lot ตาม % ความเสี่ยง (ใช้ entry/SL จาก signal) — fallback เป็น LOT_SIZE
+    lot = calc_volume(parsed["entry"], parsed["sl"])
+
     if "UP" in direction:
         order_type = mt5.ORDER_TYPE_BUY
         price      = ask          # BUY ใช้ ask
@@ -266,7 +378,7 @@ def open_order(parsed: dict) -> bool:
     request = {
         "action"      : mt5.TRADE_ACTION_DEAL,
         "symbol"      : SYMBOL,
-        "volume"      : LOT_SIZE,
+        "volume"      : lot,
         "type"        : order_type,
         "price"       : price,
         "sl"          : sl,
@@ -287,17 +399,17 @@ def open_order(parsed: dict) -> bool:
     if result.retcode == mt5.TRADE_RETCODE_DONE:
         log.info(
             f"✅ เปิด order สำเร็จ | {tf} | {direction} | "
-            f"Lot:{LOT_SIZE} | Price:{price:.2f} | "
+            f"Lot:{lot} | Price:{price:.2f} | "
             f"SL:{sl:.2f} | TP:{tp:.2f} | "
             f"Conf:{parsed['conf']:.1f}% | Ticket:#{result.order}"
         )
         _log_trade("OPEN", tf, direction, price, sl, tp,
-                   parsed["conf"], result.order)
+                   parsed["conf"], result.order, lot=lot)
         if tg:
             try:
                 tg.send_order("OPEN", tf, direction, round(price, 2),
                               sl, tp, round(parsed["conf"], 1),
-                              result.order, lot=LOT_SIZE)
+                              result.order, lot=lot)
             except Exception as e:
                 log.warning(f"Telegram order error: {e}")
         return True
@@ -307,7 +419,7 @@ def open_order(parsed: dict) -> bool:
             f"comment={result.comment}"
         )
         _log_trade("OPEN_FAIL", tf, direction, price, sl, tp,
-                   parsed["conf"], 0, note=f"retcode={result.retcode}")
+                   parsed["conf"], 0, note=f"retcode={result.retcode}", lot=lot)
         return False
 
 
@@ -347,7 +459,7 @@ def close_order(position) -> bool:
         )
         _log_trade("CLOSE", position.comment.split("_")[1] if "_" in position.comment else "?",
                    "CLOSE", price, 0, 0, 0, position.ticket,
-                   note=f"profit={profit:+.2f}")
+                   note=f"profit={profit:+.2f}", lot=position.volume)
         if tg:
             try:
                 tg.send_order("CLOSE", "-", "CLOSE", round(price, 2),
@@ -379,7 +491,7 @@ def close_all_bot_orders():
 
 def _log_trade(action: str, tf: str, direction: str,
                price: float, sl: float, tp: float,
-               conf: float, ticket: int, note: str = ""):
+               conf: float, ticket: int, note: str = "", lot: float = None):
     """บันทึก trade log เป็น JSONL"""
     today    = datetime.now().strftime("%Y%m%d")
     log_path = LOG_DIR / f"trades_{today}.jsonl"
@@ -393,7 +505,7 @@ def _log_trade(action: str, tf: str, direction: str,
         "tp"       : tp,
         "conf"     : conf,
         "ticket"   : ticket,
-        "lot"      : LOT_SIZE,
+        "lot"      : lot if lot is not None else LOT_SIZE,
         "note"     : note,
     }
     with open(log_path, "a", encoding="utf-8") as f:
@@ -409,10 +521,25 @@ def show_status():
     orders = get_open_orders()
     bid, ask = get_current_price()
 
+    sizing = f"risk {RISK_PCT:.2f}%/ไม้" if RISK_PCT > 0 else f"คงที่ {LOT_SIZE}"
+
     print(f"\n{'═'*60}")
     print(f"  Gold Auto Trader — Status  |  {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
     print(f"  Symbol: {SYMBOL}  |  Bid: {bid:.2f}  Ask: {ask:.2f}")
-    print(f"  Magic: {MAGIC}  |  Min Conf: {MIN_CONF}%  |  Lot: {LOT_SIZE}")
+    print(f"  Magic: {MAGIC}  |  Min Conf: {MIN_CONF}%  |  Lot: {sizing}")
+
+    # ── Risk guard status ──
+    acc = mt5.account_info()
+    if acc is not None and risk.enabled:
+        res = risk.update(acc.balance, acc.equity)
+        state = "🛑 HALTED" if res["halted"] else "✅ OK"
+        print(f"  Risk : {state}  |  DayP/L {res['daily_pl']:+.2f} "
+              f"({res['daily_pl_pct']:+.2f}%)  |  DD {res['drawdown_pct']:.2f}%")
+        print(f"         เพดาน: ขาดทุนวัน {DAILY_LOSS_PCT:.1f}%  ·  drawdown {MAX_DD_PCT:.1f}%")
+        if res["halted"]:
+            print(f"         เหตุผล: {res['halt_reason']}")
+    elif acc is not None:
+        print(f"  Risk : ปิดการเช็ค (TRADE_DAILY_LOSS_LIMIT_PCT/MAX_DRAWDOWN_PCT = 0)")
     print(f"{'═'*60}")
 
     if not orders:
@@ -439,13 +566,77 @@ def show_status():
 #  MAIN BOT LOGIC
 # ════════════════════════════════════════════════════════════
 
+def _alert_halt(res: dict):
+    """ส่ง Telegram แจ้งเตือนเมื่อ risk guard สั่งหยุดเทรด (ส่งครั้งเดียว)"""
+    if not tg:
+        return
+    kind = "ขาดทุนรายวัน" if res["halt_kind"] == "DAILY_LOSS" else "Max Drawdown"
+    msg = (
+        f"🛑 หยุดเทรดอัตโนมัติ — {kind}\n"
+        f"{res['halt_reason']}\n"
+        "──────────────\n"
+        f"Balance : {res['balance']:.2f} USD\n"
+        f"Equity  : {res['equity']:.2f} USD\n"
+        f"Day P/L : {res['daily_pl']:+.2f} ({res['daily_pl_pct']:+.2f}%)\n"
+        f"Drawdown: {res['drawdown_pct']:.2f}%\n"
+        f"เวลา    : {datetime.now().strftime('%d/%m %H:%M:%S')}"
+    )
+    try:
+        tg._send(tg.order_chat, msg)
+    except Exception as e:
+        log.warning(f"Telegram halt alert error: {e}")
+
+
+def check_risk() -> bool:
+    """
+    A1: เช็กเพดานความเสี่ยง (daily loss / drawdown)
+    คืน True = เทรดต่อได้ / False = โดน halt (ห้ามเปิดออเดอร์ใหม่)
+    """
+    if not risk.enabled:
+        return True
+
+    acc = mt5.account_info()
+    if acc is None:
+        log.warning("ดึง account_info ไม่ได้ — ข้ามการเช็ค risk รอบนี้")
+        return True
+
+    res = risk.update(acc.balance, acc.equity)
+    log.info(
+        f"Risk | Bal {acc.balance:.2f} Eq {acc.equity:.2f} | "
+        f"DayP/L {res['daily_pl']:+.2f} ({res['daily_pl_pct']:+.2f}%) | "
+        f"DD {res['drawdown_pct']:.2f}%"
+    )
+
+    if res["allowed"]:
+        return True
+
+    log.warning(f"🛑 STOP เทรด: {res['halt_reason']}")
+    if res["just_halted"] and not risk.alerted:
+        _alert_halt(res)
+        risk.mark_alerted()
+        if CLOSE_ON_HALT:
+            log.warning("TRADE_CLOSE_ON_HALT=on → ปิดออเดอร์ทั้งหมด")
+            close_all_bot_orders()
+    return False
+
+
 def run_once():
     """
-    รัน 1 รอบ: อ่าน signals → ตัดสินใจ → execute
+    รัน 1 รอบ: เช็ค risk/ตลาด → อ่าน signals → ตัดสินใจ → execute
     """
     now = datetime.now().strftime("%H:%M:%S")
     log.info(f"{'─'*50}")
     log.info(f"รอบใหม่ {now}")
+
+    # ── 0a. A1: risk guard (daily loss / drawdown) ───────
+    if not check_risk():
+        return
+
+    # ── 0b. A3: market-hours guard (tick ต้องสด) ─────────
+    is_open, why = is_market_open()
+    if not is_open:
+        log.info(f"⛔ ข้ามรอบนี้ — {why}")
+        return
 
     # ── 1. โหลด signals ──────────────────────────────────
     signals = load_signals()
@@ -539,7 +730,15 @@ if __name__ == "__main__":
                         help="แสดง open orders แล้วออก")
     parser.add_argument("--closeall", action="store_true",
                         help="ปิด orders ทั้งหมดของ bot")
+    parser.add_argument("--reset-risk", action="store_true",
+                        help="ล้างสถานะความเสี่ยง (ปลด halt / รีเซ็ต baseline)")
     args = parser.parse_args()
+
+    if args.reset_risk:
+        risk.reset()
+        log.info("♻️  รีเซ็ตสถานะความเสี่ยงแล้ว (ปลด halt) — "
+                 f"ลบ baseline ใน {RISK_STATE.name}")
+        exit(0)
 
     if args.status or args.closeall:
         if not connect_mt5():

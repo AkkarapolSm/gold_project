@@ -3,7 +3,7 @@
 ระบบเทรดทองคำ **XAUUSD** อัตโนมัติด้วย Machine Learning เชื่อมต่อ MetaTrader 5 (Exness)
 ครบวงจร: ดึงข้อมูล → สร้างฟีเจอร์ → ทำนายด้วย ensemble model → แสดง dashboard → แจ้งเตือน → ส่งคำสั่งเทรดจริง
 
-> อัปเดตล่าสุด: 21 มิ.ย. 2026
+> อัปเดตล่าสุด: 22 มิ.ย. 2026 (เพิ่ม Risk Management — หัวข้อ A)
 
 ---
 
@@ -24,7 +24,8 @@
 | [gold_server.py](gold_server.py) | **FastAPI backend** + background loop ทำนายทุก 1 นาที + ส่ง Telegram signal |
 | [dashboard.html](dashboard.html) | หน้าเว็บแสดงสัญญาณ/indicator แบบ realtime |
 | [trades.html](trades.html) | หน้าเว็บดูการเข้าออเดอร์ของบอท (สรุป + ออเดอร์เปิดอยู่ + ประวัติ) |
-| [gold_trader.py](gold_trader.py) | **บอทส่งคำสั่งเทรดจริง** + ส่ง Telegram order |
+| [gold_trader.py](gold_trader.py) | **บอทส่งคำสั่งเทรดจริง** + ส่ง Telegram order + position sizing + risk/market guard |
+| [gold_risk.py](gold_risk.py) | **RiskManager**: daily loss limit + max drawdown + auto-halt (ตรรกะล้วน ไม่พึ่ง MT5) |
 | [gold_telegram.py](gold_telegram.py) | แจ้งเตือน Telegram แยก 2 ช่อง (signal / order) |
 | [gold_alert.py](gold_alert.py) | แจ้งเตือนผ่าน LINE Messaging API (ทางเลือก, ยังไม่ wire เข้า server) |
 
@@ -90,10 +91,10 @@ python gold_trader.py                     # บอทเทรด + telegram ord
 ## 3. แนวทางพัฒนาต่อ
 
 ### 🔴 A. ความปลอดภัย / การจัดการความเสี่ยง (ควรทำก่อน)
-- [ ] **Risk management**: จำกัดขาดทุนต่อวัน (daily loss limit), max drawdown, หยุดบอทอัตโนมัติเมื่อถึงเพดาน
-- [ ] **Position sizing ตามทุน**: คำนวณ lot จาก % ความเสี่ยงต่อไม้ + ระยะ SL แทน lot คงที่ 0.01
-- [ ] **Market-hours guard**: เช็กความสดของ tick ก่อนส่งออเดอร์ — ข้ามตอนตลาดปิด เลี่ยง order ถูกปฏิเสธ (market closed)
-- [ ] **หมุน/เพิกถอน secret**: bot token + รหัสเคยถูก commit ใน git history (first commit ก่อนทำ .gitignore) ควร revoke/เปลี่ยนเพื่อความปลอดภัย
+- [x] **Risk management**: จำกัดขาดทุนต่อวัน (daily loss limit), max drawdown, หยุดบอทอัตโนมัติเมื่อถึงเพดาน — ทำใน [gold_risk.py](gold_risk.py) (`RiskManager`) + wire เข้า [gold_trader.py](gold_trader.py) (`check_risk`), persist สถานะที่ `gold_data/risk_state.json`, แจ้ง Telegram ตอน halt, ปลดด้วย `python gold_trader.py --reset-risk`
+- [x] **Position sizing ตามทุน**: `calc_volume()` คิด lot จาก % ความเสี่ยงต่อไม้ + ระยะ SL (`TRADE_RISK_PCT`); ตั้ง `0` = ใช้ lot คงที่เหมือนเดิม
+- [x] **Market-hours guard**: `is_market_open()` เช็ก `trade_mode` + ความสดของ tick (`TRADE_TICK_MAX_AGE`) ก่อนส่งออเดอร์ — ข้ามรอบตอนตลาดปิด เลี่ยง order ถูกปฏิเสธ
+- [ ] **หมุน/เพิกถอน secret**: bot token + รหัสเคยถูก commit ใน git history (first commit ก่อนทำ .gitignore) ควร revoke/เปลี่ยนเพื่อความปลอดภัย ⚠️ *ต้องทำเองที่ผู้ให้บริการ (ดูขั้นตอนท้ายไฟล์)*
 
 ### 🟡 B. การจัดการออเดอร์ (เพิ่มความสามารถ)
 - [ ] **Exit logic ที่ดีขึ้น**: trailing stop / partial take-profit / เลื่อน SL ไป breakeven (ปัจจุบันพึ่ง SL-TP ตายตัวอย่างเดียว)
@@ -115,3 +116,18 @@ python gold_trader.py                     # บอทเทรด + telegram ord
 
 > ⚠️ **คำเตือน**: ระบบนี้เพื่อการศึกษา/วิจัย ปัจจุบันรันบนบัญชี **demo** เท่านั้น
 > ก่อนนำไปใช้กับเงินจริง ต้องผ่านการ backtest + ทดสอบ demo เป็นระยะเวลานานพอ และมี risk management ครบถ้วน
+
+---
+
+## ภาคผนวก A4 — หมุน/เพิกถอน secret (ต้องทำเองที่ผู้ให้บริการ)
+
+secret เหล่านี้เคยถูก commit ลง git history ใน first commit (ก่อนเพิ่ม `.gitignore`) — แม้ตอนนี้ `.env` จะถูก ignore แล้ว แต่ค่าเดิม **ยังอยู่ใน history** ใครก็ตามที่เห็น repo จะดึงกลับมาได้ จึงควร revoke/เปลี่ยนใหม่:
+
+| secret | วิธีเปลี่ยน |
+|--------|-----------|
+| `TELEGRAM_BOT_TOKEN` | คุยกับ **@BotFather** → `/revoke` (หรือ `/token`) เพื่อออก token ใหม่ แล้วอัปเดตใน `.env` |
+| `MT5_PASSWORD` (บัญชี Real เดิมในคอมเมนต์ `.env`) | เปลี่ยนรหัสใน **Exness Personal Area** → Trading Accounts → Change password |
+| `FRED_API_KEY` | ขอ key ใหม่ที่ fred.stlouisfed.org แล้วลบ key เก่า |
+| `LINE_CHANNEL_TOKEN` | LINE Developers Console → channel → **Issue/Reissue** access token |
+
+> หลังเปลี่ยน secret แล้ว ถ้าต้องการลบของเก่าออกจาก git history ด้วย ให้ใช้ `git filter-repo` หรือ **BFG Repo-Cleaner** (ระวัง: เขียน history ใหม่ ต้อง force-push และแจ้งคนที่ clone ไปแล้ว) — แต่ **การ revoke/เปลี่ยน secret คือสิ่งที่สำคัญที่สุด** เพราะตัดการใช้งานของค่าที่หลุดไปได้ทันที
