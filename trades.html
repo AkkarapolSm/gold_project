@@ -45,7 +45,7 @@
   .row{display:grid;gap:8px;padding:10px 20px;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px;align-items:center}
   .row:last-child{border-bottom:none}
   .row.header{background:var(--bg2);color:var(--muted);font-size:10px;letter-spacing:1px;text-transform:uppercase}
-  .orders-grid{grid-template-columns:60px 70px 70px 90px 90px 90px 1fr 100px}
+  .orders-grid{grid-template-columns:58px 60px 56px 82px 82px 82px 1fr 88px 64px}
   .hist-grid{grid-template-columns:70px 90px 50px 80px 80px 80px 80px 60px 1fr}
   .up-color{color:var(--up)}.down-color{color:var(--down)}.neu-color{color:var(--neu)}.gold-color{color:var(--gold)}
   .tag{display:inline-block;padding:2px 8px;border-radius:12px;font-size:10px;letter-spacing:.5px;font-weight:500}
@@ -56,6 +56,18 @@
   .tag-close{background:rgba(212,168,67,.15);color:var(--gold)}
   .empty{padding:28px 20px;text-align:center;color:var(--muted);font-size:12px}
   .note{color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chart{background:var(--bg1);border:1px solid var(--border);border-radius:12px;padding:18px 20px;min-height:170px}
+  .chart svg{width:100%;height:170px;display:block}
+  .actions{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+  .btn{font-family:var(--font-mono);font-size:11px;letter-spacing:.5px;padding:7px 14px;border-radius:8px;
+       border:1px solid var(--border);background:var(--bg2);color:var(--text);cursor:pointer;transition:all .15s}
+  .btn:hover{border-color:var(--gold);color:var(--gold)}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  .btn-danger{border-color:rgba(232,69,90,.4);color:var(--down)}
+  .btn-danger:hover{background:rgba(232,69,90,.12);border-color:var(--down);color:var(--down)}
+  .btn-up{border-color:rgba(46,204,138,.4);color:var(--up)}
+  .btn-up:hover{background:rgba(46,204,138,.12);border-color:var(--up);color:var(--up)}
+  .btn-sm{padding:3px 10px;font-size:10px}
   footer{text-align:center;color:var(--muted);font-size:11px;padding-top:32px;letter-spacing:.5px}
   @media(max-width:768px){.stats{grid-template-columns:repeat(2,1fr)}.orders-grid,.hist-grid{grid-template-columns:60px 60px 70px 80px 1fr}}
 </style>
@@ -83,11 +95,28 @@
     <div class="stat"><div class="lbl">ปิดแล้ว</div><div class="num neu-color" id="s-close">—</div></div>
   </div>
 
+  <div class="section-title">📊 สถิติผลจริง (realized · 30 วัน)</div>
+  <div class="stats">
+    <div class="stat"><div class="lbl">Realized P/L</div><div class="num" id="r-pl">—</div></div>
+    <div class="stat"><div class="lbl">Win rate</div><div class="num gold-color" id="r-wr">—</div></div>
+    <div class="stat"><div class="lbl">ไม้ที่ปิด (W/L)</div><div class="num" id="r-tr">—</div></div>
+    <div class="stat"><div class="lbl">Profit factor</div><div class="num" id="r-pf">—</div></div>
+    <div class="stat"><div class="lbl">ดีสุด / แย่สุด</div><div class="num" id="r-bw" style="font-size:17px">—</div></div>
+  </div>
+
+  <div class="section-title">📉 Equity curve (cumulative realized P/L)</div>
+  <div class="chart" id="equity-chart"><div class="empty">กำลังโหลด…</div></div>
+
   <div class="section-title">📈 ออเดอร์ที่เปิดอยู่</div>
+  <div class="actions">
+    <button class="btn btn-danger" id="btn-close-all"  onclick="closeScope('all')">⛔ ปิดทั้งหมด</button>
+    <button class="btn btn-up"     id="btn-close-profit" onclick="closeScope('profit')">✅ ปิดที่กำไร</button>
+    <button class="btn btn-danger" id="btn-close-loss" onclick="closeScope('loss')">🔻 ปิดที่ขาดทุน</button>
+  </div>
   <div class="table">
     <div class="row header orders-grid">
       <div>Ticket</div><div>Type</div><div>Lot</div><div>Entry</div>
-      <div>SL</div><div>TP</div><div>Comment</div><div style="text-align:right">Profit</div>
+      <div>SL</div><div>TP</div><div>Comment</div><div style="text-align:right">Profit</div><div>จัดการ</div>
     </div>
     <div id="orders-rows"><div class="empty">กำลังโหลด…</div></div>
   </div>
@@ -139,8 +168,35 @@ function renderOrders(orders){
       <div>${fmt(o.tp)}</div>
       <div class="note">${o.comment||'—'}</div>
       <div class="${plCls}" style="text-align:right">${o.profit>0?'+':''}${fmt(o.profit)}</div>
+      <div><button class="btn btn-sm btn-danger" onclick="closeOne(${o.ticket})">ปิด</button></div>
     </div>`;
   }).join('');
+}
+
+// ── ปิดออเดอร์ ────────────────────────────────────────────
+let closing = false;
+async function postClose(qs){
+  if(closing) return;
+  closing = true;
+  document.querySelectorAll('.btn').forEach(b=>b.disabled=true);
+  try{
+    const r = await fetch('/api/close?'+qs, { method:'POST', signal: AbortSignal.timeout(15000) });
+    const d = await r.json();
+    if(d.ok) alert('ปิดสำเร็จ '+d.closed+'/'+d.total+' ไม้');
+    else     alert('ปิดไม่สำเร็จ: '+(d.error||'ไม่ทราบสาเหตุ'));
+  }catch(e){ alert('เชื่อมต่อ MT5/เซิร์ฟเวอร์ไม่ได้: '+e); }
+  closing = false;
+  document.querySelectorAll('.btn').forEach(b=>b.disabled=false);
+  refresh();
+}
+function closeScope(scope){
+  const label = {all:'ทั้งหมด', profit:'ที่กำไร', loss:'ที่ขาดทุน'}[scope] || scope;
+  if(!confirm('ยืนยันปิดออเดอร์ '+label+' ?')) return;
+  postClose('scope='+scope);
+}
+function closeOne(ticket){
+  if(!confirm('ปิดออเดอร์ #'+ticket+' ?')) return;
+  postClose('scope=one&ticket='+ticket);
 }
 
 function renderHist(trades){
@@ -162,6 +218,46 @@ function renderHist(trades){
   }).join('');
 }
 
+function renderStats(st){
+  st = st || {};
+  const pl = st.realized_pl ?? 0;
+  const plEl = document.getElementById('r-pl');
+  plEl.textContent = (pl>0?'+':'')+Number(pl).toFixed(2);
+  plEl.className = 'num ' + (pl>0?'up-color':(pl<0?'down-color':'neu-color'));
+  document.getElementById('r-wr').textContent = (st.win_rate ?? 0)+'%';
+  document.getElementById('r-tr').textContent = (st.trades ?? 0)+' ('+(st.wins??0)+'/'+(st.losses??0)+')';
+  const pf = st.profit_factor ?? 0;
+  document.getElementById('r-pf').textContent = pf>=999 ? '∞' : Number(pf).toFixed(2);
+  document.getElementById('r-bw').innerHTML =
+    '<span class="up-color">+'+Number(st.best??0).toFixed(2)+'</span> / '+
+    '<span class="down-color">'+Number(st.worst??0).toFixed(2)+'</span>';
+  renderEquity(st.equity_curve || []);
+}
+
+function renderEquity(curve){
+  const box = document.getElementById('equity-chart');
+  if(!curve.length){ box.innerHTML = '<div class="empty">ยังไม่มีไม้ที่ปิด (30 วัน)</div>'; return; }
+  const W=1000, H=170, pad=10;
+  const vals = curve.map(p=>p.pnl);
+  let lo=Math.min(0,...vals), hi=Math.max(0,...vals);
+  if(hi===lo){ hi+=1; lo-=1; }
+  const n=curve.length;
+  const x=i=> pad + (W-2*pad)*(n===1?0.5:i/(n-1));
+  const y=v=> pad + (H-2*pad)*(1-(v-lo)/(hi-lo));
+  const line = curve.map((p,i)=>x(i).toFixed(1)+','+y(p.pnl).toFixed(1)).join(' ');
+  const last = vals[vals.length-1];
+  const col  = last>=0 ? 'var(--up)' : 'var(--down)';
+  const zeroY = y(0).toFixed(1);
+  const area = 'M '+x(0).toFixed(1)+','+zeroY+' L '+line.split(' ').join(' L ')+
+               ' L '+x(n-1).toFixed(1)+','+zeroY+' Z';
+  box.innerHTML =
+    '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+
+      '<line x1="'+pad+'" y1="'+zeroY+'" x2="'+(W-pad)+'" y2="'+zeroY+'" stroke="rgba(255,255,255,.12)" stroke-dasharray="4 4"/>'+
+      '<path d="'+area+'" fill="'+col+'" opacity="0.08"/>'+
+      '<polyline points="'+line+'" fill="none" stroke="'+col+'" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>'+
+    '</svg>';
+}
+
 async function refresh(){
   const data = await fetchData();
   if(!data){ document.getElementById('last-update').textContent = 'เชื่อมต่อไม่ได้...'; return; }
@@ -174,6 +270,7 @@ async function refresh(){
   document.getElementById('s-open').textContent  = s.open  ?? 0;
   document.getElementById('s-fail').textContent  = s.fail  ?? 0;
   document.getElementById('s-close').textContent = s.close ?? 0;
+  renderStats(data.stats);
   renderOrders(data.orders);
   renderHist(data.trades);
   document.getElementById('last-update').textContent = new Date().toLocaleTimeString('th-TH');

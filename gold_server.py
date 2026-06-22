@@ -15,7 +15,7 @@
 import json
 import os
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import schedule
@@ -182,6 +182,74 @@ def get_tick():
     return JSONResponse({})
 
 
+# ── สถิติผลการเทรดจริง (realized) + equity curve จาก MT5 history ──
+def _realized_stats(days: int = 30) -> dict:
+    """
+    คำนวณ win-rate / profit factor / equity curve จาก history deals ของบอท
+    (filter ด้วย magic) — ใช้ MT5 ที่ background loop เชื่อมต่อไว้แล้ว
+    """
+    empty = {"trades": 0, "wins": 0, "losses": 0, "win_rate": 0.0,
+             "realized_pl": 0.0, "profit_factor": 0.0,
+             "best": 0.0, "worst": 0.0, "equity_curve": []}
+    try:
+        import MetaTrader5 as mt5
+        to_dt   = datetime.now()
+        from_dt = to_dt - timedelta(days=days)
+        deals   = mt5.history_deals_get(from_dt, to_dt)
+        if not deals:
+            return empty
+
+        mine = [d for d in deals if d.magic == MAGIC]
+        if not mine:
+            return empty
+
+        def net(d):
+            return d.profit + d.swap + d.commission
+
+        # รวม P/L + เวลาปิดล่าสุด ต่อ position (เฉพาะขา OUT)
+        pos_pnl, pos_time = {}, {}
+        for d in mine:
+            if d.entry == mt5.DEAL_ENTRY_OUT:
+                pos_pnl[d.position_id]  = pos_pnl.get(d.position_id, 0.0) + net(d)
+                pos_time[d.position_id] = max(pos_time.get(d.position_id, 0), d.time)
+
+        if not pos_pnl:
+            return empty
+
+        # equity curve: เรียงตามเวลาปิด → cumulative realized P/L
+        ordered = sorted(pos_pnl.keys(), key=lambda pid: pos_time[pid])
+        cum, curve = 0.0, []
+        for pid in ordered:
+            cum += pos_pnl[pid]
+            curve.append({
+                "t"  : datetime.fromtimestamp(pos_time[pid]).strftime("%d/%m %H:%M"),
+                "pnl": round(cum, 2),
+            })
+
+        pnls   = list(pos_pnl.values())
+        wins   = [p for p in pnls if p > 0]
+        losses = [p for p in pnls if p < 0]
+        n      = len(pnls)
+        gross_win  = sum(wins)
+        gross_loss = -sum(losses)
+        pf = round(gross_win / gross_loss, 2) if gross_loss > 0 else (999.0 if gross_win > 0 else 0.0)
+
+        return {
+            "trades"       : n,
+            "wins"         : len(wins),
+            "losses"       : len(losses),
+            "win_rate"     : round(len(wins) / n * 100, 1) if n else 0.0,
+            "realized_pl"  : round(sum(net(d) for d in mine), 2),
+            "profit_factor": pf,
+            "best"         : round(max(pnls), 2),
+            "worst"        : round(min(pnls), 2),
+            "equity_curve" : curve[-200:],
+        }
+    except Exception as e:
+        print(f"[API] realized_stats error: {e}")
+        return empty
+
+
 # ── API: ประวัติการเข้าออเดอร์ของบอท + ออเดอร์ที่เปิดอยู่ ──────
 @app.get("/api/trades")
 def get_trades():
@@ -216,6 +284,9 @@ def get_trades():
         except (json.JSONDecodeError, UnicodeDecodeError):
             pass
 
+    # สถิติผลจริง (realized) + equity curve จาก MT5 history
+    stats = _realized_stats(days=30)
+
     return JSONResponse({
         "trades": trades[:200],
         "orders": bot_orders,
@@ -226,7 +297,75 @@ def get_trades():
             "open_now"   : len(bot_orders),
             "floating_pl": bot_profit,
         },
+        "stats": stats,
     })
+
+
+# ── ปิดออเดอร์จากหน้าเว็บ (ปิดทีละไม้ / ทั้งหมด / ที่กำไร / ที่ขาดทุน) ──
+def _close_position(mt5, p) -> dict:
+    """ปิด position 1 ไม้ด้วย market order — คืนผลลัพธ์"""
+    tick = mt5.symbol_info_tick(p.symbol)
+    if tick is None:
+        return {"ticket": p.ticket, "ok": False, "error": "no tick"}
+    if p.type == mt5.ORDER_TYPE_BUY:
+        close_type, price = mt5.ORDER_TYPE_SELL, tick.bid
+    else:
+        close_type, price = mt5.ORDER_TYPE_BUY, tick.ask
+    req = {
+        "action"      : mt5.TRADE_ACTION_DEAL,
+        "symbol"      : p.symbol,
+        "volume"      : p.volume,
+        "type"        : close_type,
+        "position"    : p.ticket,
+        "price"       : price,
+        "deviation"   : 20,
+        "magic"       : MAGIC,
+        "comment"     : f"web_close_{p.ticket}",
+        "type_time"   : mt5.ORDER_TIME_GTC,
+        "type_filling": mt5.ORDER_FILLING_IOC,
+    }
+    r  = mt5.order_send(req)
+    ok = r is not None and r.retcode == mt5.TRADE_RETCODE_DONE
+    return {"ticket": p.ticket, "ok": ok,
+            "retcode": (r.retcode if r else None),
+            "profit": round(p.profit, 2)}
+
+
+@app.post("/api/close")
+def api_close(scope: str = "all", ticket: int = 0):
+    """
+    ปิดออเดอร์ของบอท (filter magic)
+      scope=one&ticket=123  ปิดไม้เดียว
+      scope=all             ปิดทั้งหมด
+      scope=profit          ปิดเฉพาะที่กำไร (profit > 0)
+      scope=loss            ปิดเฉพาะที่ขาดทุน (profit < 0)
+    """
+    try:
+        import MetaTrader5 as mt5
+    except Exception:
+        return JSONResponse({"ok": False, "error": "MT5 ไม่พร้อม"}, status_code=503)
+
+    positions = mt5.positions_get()
+    if positions is None:
+        return JSONResponse({"ok": False, "error": "ดึง positions ไม่ได้ — MT5 อาจยังไม่เชื่อมต่อ"},
+                            status_code=503)
+
+    bot = [p for p in positions if p.magic == MAGIC]
+    if scope == "one":
+        targets = [p for p in bot if p.ticket == ticket]
+    elif scope == "profit":
+        targets = [p for p in bot if p.profit > 0]
+    elif scope == "loss":
+        targets = [p for p in bot if p.profit < 0]
+    else:
+        targets = bot
+
+    results = [_close_position(mt5, p) for p in targets]
+    closed  = sum(1 for r in results if r["ok"])
+    print(f"[CLOSE] scope={scope} ticket={ticket} → ปิด {closed}/{len(targets)}")
+    return JSONResponse({"ok": True, "scope": scope,
+                         "closed": closed, "total": len(targets),
+                         "results": results})
 
 
 # ── Background: รัน pipeline + predict ทุกนาที ────────────────
@@ -251,6 +390,15 @@ def _background_loop():
             tg = None
             print(f"[BG] Telegram init error: {e}")
 
+        # D2: signal adjuster (fundamental / sentiment / regime overlay)
+        try:
+            from gold_signal_adjuster import adjust as adjust_signal_ctx, ENABLED as ADJ_ON
+            if ADJ_ON:
+                print("[BG] Signal adjuster (fund/sent/regime): เปิดใช้งาน")
+        except Exception as e:
+            adjust_signal_ctx, ADJ_ON = None, False
+            print(f"[BG] Signal adjuster init error: {e}")
+
         def job():
             signals_by_tf = {}
             for tf_name, tf_val in TIMEFRAMES.items():
@@ -261,6 +409,12 @@ def _background_loop():
                     last_close = float(df_feat["Close"].iloc[-1])
                     atr = float(df_feat["ATR14"].iloc[-1])
                     sig = ens.predict_signal(df_feat, last_close, atr)
+                    # D2: ปรับ confidence ตามบริบท (fund/sent/regime)
+                    if ADJ_ON and adjust_signal_ctx is not None:
+                        try:
+                            sig = adjust_signal_ctx(sig, df_feat, tf_name)
+                        except Exception as e:
+                            print(f"[BG] {tf_name} adjust error: {e}")
                     signals_by_tf[tf_name] = sig
                 except Exception as e:
                     print(f"[BG] {tf_name} error: {e}")
@@ -343,6 +497,15 @@ def startup():
     DATA_DIR.mkdir(exist_ok=True)
     t = threading.Thread(target=_background_loop, daemon=True)
     t.start()
+
+    # D1: auto-retrain รายสัปดาห์ (opt-in ผ่าน .env RETRAIN_AUTO=true)
+    if os.getenv("RETRAIN_AUTO", "false").strip().lower() in ("1", "true", "yes", "on"):
+        try:
+            from gold_retrain import start_retrain_scheduler
+            start_retrain_scheduler()
+        except Exception as e:
+            print(f"[RETRAIN-SCHED] init error: {e}")
+
     print("🚀 Gold Dashboard เริ่มทำงาน → http://localhost:8000")
 
 

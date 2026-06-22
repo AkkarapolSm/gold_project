@@ -232,8 +232,9 @@ def run_walk_forward(tf: str = "M15",
 
 def retrain_latest(tf: str = "M15", model_type: str = "xgb") -> dict:
     """
-    Train โมเดลใหม่ด้วยข้อมูล 6 เดือนล่าสุด
-    บันทึกทับ model เดิม พร้อม performance log
+    Train โมเดลเดี่ยว (xgb/lgb) ด้วยข้อมูล 6 เดือนล่าสุด — ใช้ "ประเมิน" เท่านั้น
+    ⚠️ บันทึกที่ gold_wfo/ (ไม่ใช่ gold_models/) เพราะ feature/รูปแบบไฟล์ต่างจาก
+       EnsembleModel ที่ deploy อยู่ — การ deploy จริงให้ใช้ gold_retrain.py
     """
     import joblib
 
@@ -256,8 +257,8 @@ def retrain_latest(tf: str = "M15", model_type: str = "xgb") -> dict:
 
         res = train_window(df_train, df_val, feat_cols, model_type)
 
-        # บันทึก model
-        save_path = MODEL_DIR / f"{model_type}_{tf}.pkl"
+        # บันทึก model (ที่ gold_wfo/ เพื่อไม่ชนกับ live models ใน gold_models/)
+        save_path = WFO_DIR / f"{model_type}_{tf}_wfo.pkl"
         joblib.dump({
             "model"     : res["model"],
             "scaler"    : res["scaler"],
