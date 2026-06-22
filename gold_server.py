@@ -15,7 +15,7 @@
 import json
 import os
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import schedule
@@ -182,6 +182,74 @@ def get_tick():
     return JSONResponse({})
 
 
+# ── สถิติผลการเทรดจริง (realized) + equity curve จาก MT5 history ──
+def _realized_stats(days: int = 30) -> dict:
+    """
+    คำนวณ win-rate / profit factor / equity curve จาก history deals ของบอท
+    (filter ด้วย magic) — ใช้ MT5 ที่ background loop เชื่อมต่อไว้แล้ว
+    """
+    empty = {"trades": 0, "wins": 0, "losses": 0, "win_rate": 0.0,
+             "realized_pl": 0.0, "profit_factor": 0.0,
+             "best": 0.0, "worst": 0.0, "equity_curve": []}
+    try:
+        import MetaTrader5 as mt5
+        to_dt   = datetime.now()
+        from_dt = to_dt - timedelta(days=days)
+        deals   = mt5.history_deals_get(from_dt, to_dt)
+        if not deals:
+            return empty
+
+        mine = [d for d in deals if d.magic == MAGIC]
+        if not mine:
+            return empty
+
+        def net(d):
+            return d.profit + d.swap + d.commission
+
+        # รวม P/L + เวลาปิดล่าสุด ต่อ position (เฉพาะขา OUT)
+        pos_pnl, pos_time = {}, {}
+        for d in mine:
+            if d.entry == mt5.DEAL_ENTRY_OUT:
+                pos_pnl[d.position_id]  = pos_pnl.get(d.position_id, 0.0) + net(d)
+                pos_time[d.position_id] = max(pos_time.get(d.position_id, 0), d.time)
+
+        if not pos_pnl:
+            return empty
+
+        # equity curve: เรียงตามเวลาปิด → cumulative realized P/L
+        ordered = sorted(pos_pnl.keys(), key=lambda pid: pos_time[pid])
+        cum, curve = 0.0, []
+        for pid in ordered:
+            cum += pos_pnl[pid]
+            curve.append({
+                "t"  : datetime.fromtimestamp(pos_time[pid]).strftime("%d/%m %H:%M"),
+                "pnl": round(cum, 2),
+            })
+
+        pnls   = list(pos_pnl.values())
+        wins   = [p for p in pnls if p > 0]
+        losses = [p for p in pnls if p < 0]
+        n      = len(pnls)
+        gross_win  = sum(wins)
+        gross_loss = -sum(losses)
+        pf = round(gross_win / gross_loss, 2) if gross_loss > 0 else (999.0 if gross_win > 0 else 0.0)
+
+        return {
+            "trades"       : n,
+            "wins"         : len(wins),
+            "losses"       : len(losses),
+            "win_rate"     : round(len(wins) / n * 100, 1) if n else 0.0,
+            "realized_pl"  : round(sum(net(d) for d in mine), 2),
+            "profit_factor": pf,
+            "best"         : round(max(pnls), 2),
+            "worst"        : round(min(pnls), 2),
+            "equity_curve" : curve[-200:],
+        }
+    except Exception as e:
+        print(f"[API] realized_stats error: {e}")
+        return empty
+
+
 # ── API: ประวัติการเข้าออเดอร์ของบอท + ออเดอร์ที่เปิดอยู่ ──────
 @app.get("/api/trades")
 def get_trades():
@@ -216,6 +284,9 @@ def get_trades():
         except (json.JSONDecodeError, UnicodeDecodeError):
             pass
 
+    # สถิติผลจริง (realized) + equity curve จาก MT5 history
+    stats = _realized_stats(days=30)
+
     return JSONResponse({
         "trades": trades[:200],
         "orders": bot_orders,
@@ -226,6 +297,7 @@ def get_trades():
             "open_now"   : len(bot_orders),
             "floating_pl": bot_profit,
         },
+        "stats": stats,
     })
 
 

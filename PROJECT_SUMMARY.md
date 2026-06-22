@@ -3,7 +3,7 @@
 ระบบเทรดทองคำ **XAUUSD** อัตโนมัติด้วย Machine Learning เชื่อมต่อ MetaTrader 5 (Exness)
 ครบวงจร: ดึงข้อมูล → สร้างฟีเจอร์ → ทำนายด้วย ensemble model → แสดง dashboard → แจ้งเตือน → ส่งคำสั่งเทรดจริง
 
-> อัปเดตล่าสุด: 22 มิ.ย. 2026 (เพิ่ม Risk Management — A + Order Management — B)
+> อัปเดตล่าสุด: 22 มิ.ย. 2026 (เพิ่ม A. Risk Management · B. Order Management · C. Alerts/Reporting)
 
 ---
 
@@ -23,7 +23,7 @@
 | [gold_walk_forward.py](gold_walk_forward.py) | ทดสอบโมเดลแบบ walk-forward optimization |
 | [gold_server.py](gold_server.py) | **FastAPI backend** + background loop ทำนายทุก 1 นาที + ส่ง Telegram signal |
 | [dashboard.html](dashboard.html) | หน้าเว็บแสดงสัญญาณ/indicator แบบ realtime |
-| [trades.html](trades.html) | หน้าเว็บดูการเข้าออเดอร์ของบอท (สรุป + ออเดอร์เปิดอยู่ + ประวัติ) |
+| [trades.html](trades.html) | หน้าเว็บดูการเข้าออเดอร์ของบอท (สรุป + ออเดอร์เปิดอยู่ + ประวัติ + **equity curve / win-rate / profit factor**) |
 | [gold_trader.py](gold_trader.py) | **บอทส่งคำสั่งเทรดจริง** + Telegram order + position sizing + risk/market guard + exit mgmt (trailing/BE/partial) + conflict & spread guard |
 | [gold_risk.py](gold_risk.py) | **RiskManager**: daily loss limit + max drawdown + auto-halt (ตรรกะล้วน ไม่พึ่ง MT5) |
 | [gold_telegram.py](gold_telegram.py) | แจ้งเตือน Telegram แยก 2 ช่อง (signal / order) |
@@ -102,9 +102,9 @@ python gold_trader.py                     # บอทเทรด + telegram ord
 - [x] **ตรวจ spread** ก่อนเข้า: `open_order` ข้ามถ้า `ask-bid > TRADE_MAX_SPREAD` (กันเข้าในช่วงผันผวน/ข่าว) + ดัก slippage ด้วย `deviation`
 
 ### 🟢 C. การแจ้งเตือน / รายงาน
-- [ ] ส่ง Telegram ตอน **OPEN_FAIL** (พร้อมเหตุผล retcode) เพื่อ debug ได้ทันที
-- [ ] **สรุป P/L รายวัน/รายสัปดาห์** เข้า Telegram อัตโนมัติ
-- [ ] Dashboard เพิ่ม: equity curve, win-rate, จำนวนไม้, สถิติย้อนหลังจาก trade logs
+- [x] ส่ง Telegram ตอน **OPEN_FAIL** พร้อมเหตุผล (map `retcode` → ข้อความ เช่น market closed / no money / invalid stops) ทั้ง path `order_send=None` และ retcode ไม่ผ่าน — `_notify_open_fail()`
+- [x] **สรุป P/L รายวัน/รายสัปดาห์** เข้า Telegram อัตโนมัติ: `report_pnl()` ดึง history deals (filter magic) คิด win-rate/profit factor/ดีสุด-แย่สุด · schedule ตาม `REPORT_DAILY_TIME`/`REPORT_WEEKLY_DAY` · สั่งเองได้ `python gold_trader.py --report daily|weekly`
+- [x] Dashboard `/trades` เพิ่ม: **equity curve** (cumulative realized P/L, SVG ไม่ง้อ lib), **win-rate**, **profit factor**, จำนวนไม้ W/L, ดีสุด/แย่สุด — `gold_server.py` `_realized_stats()` (จาก MT5 history 30 วัน, group ตาม position_id)
 
 ### 🔵 D. คุณภาพโมเดล / ผลิตภัณฑ์
 - [ ] **Retrain schedule**: เทรนโมเดลใหม่อัตโนมัติเป็นรอบ + ใช้ [gold_walk_forward.py](gold_walk_forward.py) ตรวจ performance ก่อน deploy

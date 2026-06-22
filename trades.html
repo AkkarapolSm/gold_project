@@ -56,6 +56,8 @@
   .tag-close{background:rgba(212,168,67,.15);color:var(--gold)}
   .empty{padding:28px 20px;text-align:center;color:var(--muted);font-size:12px}
   .note{color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chart{background:var(--bg1);border:1px solid var(--border);border-radius:12px;padding:18px 20px;min-height:170px}
+  .chart svg{width:100%;height:170px;display:block}
   footer{text-align:center;color:var(--muted);font-size:11px;padding-top:32px;letter-spacing:.5px}
   @media(max-width:768px){.stats{grid-template-columns:repeat(2,1fr)}.orders-grid,.hist-grid{grid-template-columns:60px 60px 70px 80px 1fr}}
 </style>
@@ -82,6 +84,18 @@
     <div class="stat"><div class="lbl">เปิดไม่สำเร็จ</div><div class="num down-color" id="s-fail">—</div></div>
     <div class="stat"><div class="lbl">ปิดแล้ว</div><div class="num neu-color" id="s-close">—</div></div>
   </div>
+
+  <div class="section-title">📊 สถิติผลจริง (realized · 30 วัน)</div>
+  <div class="stats">
+    <div class="stat"><div class="lbl">Realized P/L</div><div class="num" id="r-pl">—</div></div>
+    <div class="stat"><div class="lbl">Win rate</div><div class="num gold-color" id="r-wr">—</div></div>
+    <div class="stat"><div class="lbl">ไม้ที่ปิด (W/L)</div><div class="num" id="r-tr">—</div></div>
+    <div class="stat"><div class="lbl">Profit factor</div><div class="num" id="r-pf">—</div></div>
+    <div class="stat"><div class="lbl">ดีสุด / แย่สุด</div><div class="num" id="r-bw" style="font-size:17px">—</div></div>
+  </div>
+
+  <div class="section-title">📉 Equity curve (cumulative realized P/L)</div>
+  <div class="chart" id="equity-chart"><div class="empty">กำลังโหลด…</div></div>
 
   <div class="section-title">📈 ออเดอร์ที่เปิดอยู่</div>
   <div class="table">
@@ -162,6 +176,46 @@ function renderHist(trades){
   }).join('');
 }
 
+function renderStats(st){
+  st = st || {};
+  const pl = st.realized_pl ?? 0;
+  const plEl = document.getElementById('r-pl');
+  plEl.textContent = (pl>0?'+':'')+Number(pl).toFixed(2);
+  plEl.className = 'num ' + (pl>0?'up-color':(pl<0?'down-color':'neu-color'));
+  document.getElementById('r-wr').textContent = (st.win_rate ?? 0)+'%';
+  document.getElementById('r-tr').textContent = (st.trades ?? 0)+' ('+(st.wins??0)+'/'+(st.losses??0)+')';
+  const pf = st.profit_factor ?? 0;
+  document.getElementById('r-pf').textContent = pf>=999 ? '∞' : Number(pf).toFixed(2);
+  document.getElementById('r-bw').innerHTML =
+    '<span class="up-color">+'+Number(st.best??0).toFixed(2)+'</span> / '+
+    '<span class="down-color">'+Number(st.worst??0).toFixed(2)+'</span>';
+  renderEquity(st.equity_curve || []);
+}
+
+function renderEquity(curve){
+  const box = document.getElementById('equity-chart');
+  if(!curve.length){ box.innerHTML = '<div class="empty">ยังไม่มีไม้ที่ปิด (30 วัน)</div>'; return; }
+  const W=1000, H=170, pad=10;
+  const vals = curve.map(p=>p.pnl);
+  let lo=Math.min(0,...vals), hi=Math.max(0,...vals);
+  if(hi===lo){ hi+=1; lo-=1; }
+  const n=curve.length;
+  const x=i=> pad + (W-2*pad)*(n===1?0.5:i/(n-1));
+  const y=v=> pad + (H-2*pad)*(1-(v-lo)/(hi-lo));
+  const line = curve.map((p,i)=>x(i).toFixed(1)+','+y(p.pnl).toFixed(1)).join(' ');
+  const last = vals[vals.length-1];
+  const col  = last>=0 ? 'var(--up)' : 'var(--down)';
+  const zeroY = y(0).toFixed(1);
+  const area = 'M '+x(0).toFixed(1)+','+zeroY+' L '+line.split(' ').join(' L ')+
+               ' L '+x(n-1).toFixed(1)+','+zeroY+' Z';
+  box.innerHTML =
+    '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+
+      '<line x1="'+pad+'" y1="'+zeroY+'" x2="'+(W-pad)+'" y2="'+zeroY+'" stroke="rgba(255,255,255,.12)" stroke-dasharray="4 4"/>'+
+      '<path d="'+area+'" fill="'+col+'" opacity="0.08"/>'+
+      '<polyline points="'+line+'" fill="none" stroke="'+col+'" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>'+
+    '</svg>';
+}
+
 async function refresh(){
   const data = await fetchData();
   if(!data){ document.getElementById('last-update').textContent = 'เชื่อมต่อไม่ได้...'; return; }
@@ -174,6 +228,7 @@ async function refresh(){
   document.getElementById('s-open').textContent  = s.open  ?? 0;
   document.getElementById('s-fail').textContent  = s.fail  ?? 0;
   document.getElementById('s-close').textContent = s.close ?? 0;
+  renderStats(data.stats);
   renderOrders(data.orders);
   renderHist(data.trades);
   document.getElementById('last-update').textContent = new Date().toLocaleTimeString('th-TH');
