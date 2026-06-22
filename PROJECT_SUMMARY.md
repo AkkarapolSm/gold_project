@@ -3,7 +3,7 @@
 ระบบเทรดทองคำ **XAUUSD** อัตโนมัติด้วย Machine Learning เชื่อมต่อ MetaTrader 5 (Exness)
 ครบวงจร: ดึงข้อมูล → สร้างฟีเจอร์ → ทำนายด้วย ensemble model → แสดง dashboard → แจ้งเตือน → ส่งคำสั่งเทรดจริง
 
-> อัปเดตล่าสุด: 22 มิ.ย. 2026 (เพิ่ม A. Risk Management · B. Order Management · C. Alerts/Reporting)
+> อัปเดตล่าสุด: 22 มิ.ย. 2026 (เพิ่ม A. Risk · B. Order Mgmt · C. Alerts/Reporting · D. Model Quality)
 
 ---
 
@@ -28,6 +28,10 @@
 | [gold_risk.py](gold_risk.py) | **RiskManager**: daily loss limit + max drawdown + auto-halt (ตรรกะล้วน ไม่พึ่ง MT5) |
 | [gold_telegram.py](gold_telegram.py) | แจ้งเตือน Telegram แยก 2 ช่อง (signal / order) |
 | [gold_alert.py](gold_alert.py) | แจ้งเตือนผ่าน LINE Messaging API (ทางเลือก, ยังไม่ wire เข้า server) |
+| [gold_signal_adjuster.py](gold_signal_adjuster.py) | **(D2)** รวม fundamental/sentiment/regime ปรับ confidence + veto |
+| [gold_retrain.py](gold_retrain.py) | **(D1)** retrain orchestrator + WFO gate + backup/rollback (deploy ปลอดภัย) |
+| [gold_backtest.py](gold_backtest.py) | **(D4)** backtest กลยุทธ์: equity curve / win-rate / profit factor / max drawdown |
+| [README.md](README.md) · [start_all.ps1](start_all.ps1) | **(D3)** คู่มือ + สคริปต์เปิดทั้งระบบทีเดียว |
 
 **โฟลเดอร์:** `gold_data/` (ข้อมูล+สัญญาณ+trade logs) · `gold_models/` (โมเดลที่เทรนแล้ว M15/M30/H1) · `gold_wfo/` (ผล walk-forward) · `venv/` (Python env)
 
@@ -107,10 +111,12 @@ python gold_trader.py                     # บอทเทรด + telegram ord
 - [x] Dashboard `/trades` เพิ่ม: **equity curve** (cumulative realized P/L, SVG ไม่ง้อ lib), **win-rate**, **profit factor**, จำนวนไม้ W/L, ดีสุด/แย่สุด — `gold_server.py` `_realized_stats()` (จาก MT5 history 30 วัน, group ตาม position_id)
 
 ### 🔵 D. คุณภาพโมเดล / ผลิตภัณฑ์
-- [ ] **Retrain schedule**: เทรนโมเดลใหม่อัตโนมัติเป็นรอบ + ใช้ [gold_walk_forward.py](gold_walk_forward.py) ตรวจ performance ก่อน deploy
-- [ ] **รวม fundamental / sentiment / regime เข้าสัญญาณจริง** — มีโมดูลครบแล้วแต่ยังไม่ถูก wire เข้า ensemble เต็มที่
-- [ ] เพิ่ม **README.md**, สคริปต์ start ทั้งระบบทีเดียว (server + bot), รันเป็น service/auto-start เมื่อเปิดเครื่อง
-- [ ] **Backtest จริงจัง** ก่อนใช้เงินจริง — ยืนยัน edge ของกลยุทธ์บนข้อมูลย้อนหลังหลายช่วงตลาด
+- [x] **Retrain schedule**: [gold_retrain.py](gold_retrain.py) — rebuild features → ประเมิน Walk-Forward (OOS) → ผ่าน gate `RETRAIN_GATE_DIR_ACC` เท่านั้นจึง deploy, retrain `EnsembleModel` (รูปแบบไฟล์เดียวกับ live) พร้อม **backup + rollback**, scheduler opt-in ผ่าน `RETRAIN_AUTO` · แก้บั๊ก [gold_walk_forward.py](gold_walk_forward.py) ที่ `retrain_latest` เคยเซฟทับ live models (ย้ายไป `gold_wfo/`)
+- [x] **รวม fundamental / sentiment / regime เข้าสัญญาณจริง**: [gold_signal_adjuster.py](gold_signal_adjuster.py) เป็น context overlay ปรับ confidence + veto (ไม่ต้อง retrain, ไม่แตะ entry/SL/TP) wire เข้า background loop ของ [gold_server.py](gold_server.py) · เปิด/ปรับน้ำหนักผ่าน `SIGNAL_ADJUST` / `ADJUST_*`
+- [x] เพิ่ม **[README.md](README.md)** ครบวงจร + **[start_all.ps1](start_all.ps1)** เปิด server+bot ทีเดียว + วิธี auto-start ด้วย Task Scheduler
+- [x] **Backtest จริงจัง**: [gold_backtest.py](gold_backtest.py) จำลองกลยุทธ์จริง (SL/TP ATR, ถือทีละไม้, timeout) → equity curve, win-rate, **profit factor, max drawdown, expectancy** บันทึก `gold_wfo/backtest_*.{csv,json}` · หมายเหตุ in-sample → ใช้ walk-forward ดู edge OOS
+
+> หมายเหตุการ deploy D: signal adjuster + backtest + retrain orchestrator ผ่านการ verify (compile/import/รันจริงกับ CSV) แล้ว · การ retrain/auto-retrain เต็มรูปแบบต้องมี MT5 + เวลาเทรน (โดยเฉพาะ LSTM) จึงควรรันช่วงตลาดปิด
 
 ---
 

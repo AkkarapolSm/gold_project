@@ -323,6 +323,15 @@ def _background_loop():
             tg = None
             print(f"[BG] Telegram init error: {e}")
 
+        # D2: signal adjuster (fundamental / sentiment / regime overlay)
+        try:
+            from gold_signal_adjuster import adjust as adjust_signal_ctx, ENABLED as ADJ_ON
+            if ADJ_ON:
+                print("[BG] Signal adjuster (fund/sent/regime): เปิดใช้งาน")
+        except Exception as e:
+            adjust_signal_ctx, ADJ_ON = None, False
+            print(f"[BG] Signal adjuster init error: {e}")
+
         def job():
             signals_by_tf = {}
             for tf_name, tf_val in TIMEFRAMES.items():
@@ -333,6 +342,12 @@ def _background_loop():
                     last_close = float(df_feat["Close"].iloc[-1])
                     atr = float(df_feat["ATR14"].iloc[-1])
                     sig = ens.predict_signal(df_feat, last_close, atr)
+                    # D2: ปรับ confidence ตามบริบท (fund/sent/regime)
+                    if ADJ_ON and adjust_signal_ctx is not None:
+                        try:
+                            sig = adjust_signal_ctx(sig, df_feat, tf_name)
+                        except Exception as e:
+                            print(f"[BG] {tf_name} adjust error: {e}")
                     signals_by_tf[tf_name] = sig
                 except Exception as e:
                     print(f"[BG] {tf_name} error: {e}")
@@ -415,6 +430,15 @@ def startup():
     DATA_DIR.mkdir(exist_ok=True)
     t = threading.Thread(target=_background_loop, daemon=True)
     t.start()
+
+    # D1: auto-retrain รายสัปดาห์ (opt-in ผ่าน .env RETRAIN_AUTO=true)
+    if os.getenv("RETRAIN_AUTO", "false").strip().lower() in ("1", "true", "yes", "on"):
+        try:
+            from gold_retrain import start_retrain_scheduler
+            start_retrain_scheduler()
+        except Exception as e:
+            print(f"[RETRAIN-SCHED] init error: {e}")
+
     print("🚀 Gold Dashboard เริ่มทำงาน → http://localhost:8000")
 
 
