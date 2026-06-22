@@ -3,7 +3,7 @@
 ระบบเทรดทองคำ **XAUUSD** อัตโนมัติด้วย Machine Learning เชื่อมต่อ MetaTrader 5 (Exness)
 ครบวงจร: ดึงข้อมูล → สร้างฟีเจอร์ → ทำนายด้วย ensemble model → แสดง dashboard → แจ้งเตือน → ส่งคำสั่งเทรดจริง
 
-> อัปเดตล่าสุด: 22 มิ.ย. 2026 (เพิ่ม Risk Management — หัวข้อ A)
+> อัปเดตล่าสุด: 22 มิ.ย. 2026 (เพิ่ม Risk Management — A + Order Management — B)
 
 ---
 
@@ -24,7 +24,7 @@
 | [gold_server.py](gold_server.py) | **FastAPI backend** + background loop ทำนายทุก 1 นาที + ส่ง Telegram signal |
 | [dashboard.html](dashboard.html) | หน้าเว็บแสดงสัญญาณ/indicator แบบ realtime |
 | [trades.html](trades.html) | หน้าเว็บดูการเข้าออเดอร์ของบอท (สรุป + ออเดอร์เปิดอยู่ + ประวัติ) |
-| [gold_trader.py](gold_trader.py) | **บอทส่งคำสั่งเทรดจริง** + ส่ง Telegram order + position sizing + risk/market guard |
+| [gold_trader.py](gold_trader.py) | **บอทส่งคำสั่งเทรดจริง** + Telegram order + position sizing + risk/market guard + exit mgmt (trailing/BE/partial) + conflict & spread guard |
 | [gold_risk.py](gold_risk.py) | **RiskManager**: daily loss limit + max drawdown + auto-halt (ตรรกะล้วน ไม่พึ่ง MT5) |
 | [gold_telegram.py](gold_telegram.py) | แจ้งเตือน Telegram แยก 2 ช่อง (signal / order) |
 | [gold_alert.py](gold_alert.py) | แจ้งเตือนผ่าน LINE Messaging API (ทางเลือก, ยังไม่ wire เข้า server) |
@@ -97,9 +97,9 @@ python gold_trader.py                     # บอทเทรด + telegram ord
 - [ ] **หมุน/เพิกถอน secret**: bot token + รหัสเคยถูก commit ใน git history (first commit ก่อนทำ .gitignore) ควร revoke/เปลี่ยนเพื่อความปลอดภัย ⚠️ *ต้องทำเองที่ผู้ให้บริการ (ดูขั้นตอนท้ายไฟล์)*
 
 ### 🟡 B. การจัดการออเดอร์ (เพิ่มความสามารถ)
-- [ ] **Exit logic ที่ดีขึ้น**: trailing stop / partial take-profit / เลื่อน SL ไป breakeven (ปัจจุบันพึ่ง SL-TP ตายตัวอย่างเดียว)
-- [ ] **กันสัญญาณขัดกัน**: เมื่อหลาย TF ให้ทิศตรงข้าม ไม่ควรเปิดสวนซ้อนกัน — เพิ่ม logic ตัดสินใจรวม
-- [ ] **ตรวจ spread/slippage** ก่อนเข้า — ข้ามถ้า spread กว้างผิดปกติ
+- [x] **Exit logic ที่ดีขึ้น**: `manage_open_positions()` ทำ trailing stop + breakeven + partial TP (เป็นสัดส่วนของระยะ TP), แก้ SL เฉพาะตอน "แน่นขึ้น", เคารพ `trade_stops_level` ของโบรกเกอร์, persist สถานะที่ `gold_data/managed_positions.json` (กัน partial ซ้ำ) — toggle ผ่าน `TRADE_MANAGE_EXITS/BREAKEVEN/TRAILING/PARTIAL_TP`
+- [x] **กันสัญญาณขัดกัน**: `resolve_conflict()` รวมหลาย TF เป็นทิศเดียว (เลือกฝั่ง conf รวมมากกว่า, สูสีภายใน `TRADE_CONFLICT_MARGIN` = งดเทรด) + **กันเปิดสวน**ของโพสิชันที่ถืออยู่
+- [x] **ตรวจ spread** ก่อนเข้า: `open_order` ข้ามถ้า `ask-bid > TRADE_MAX_SPREAD` (กันเข้าในช่วงผันผวน/ข่าว) + ดัก slippage ด้วย `deviation`
 
 ### 🟢 C. การแจ้งเตือน / รายงาน
 - [ ] ส่ง Telegram ตอน **OPEN_FAIL** (พร้อมเหตุผล retcode) เพื่อ debug ได้ทันที

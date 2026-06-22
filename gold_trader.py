@@ -21,6 +21,15 @@
    TRADE_CLOSE_ON_HALT=false      # true = ปิดออเดอร์ทั้งหมดเมื่อโดน halt
    TRADE_TICK_MAX_AGE=120         # tick เก่าเกินกี่วินาที = ถือว่าตลาดปิด
 
+   # ── Order management (B) ──
+   TRADE_MAX_SPREAD=0.50          # B3: spread สูงสุด (USD) ที่ยอมเข้า, 0=ปิด
+   TRADE_CONFLICT_GUARD=true      # B2: รวมหลาย TF + กันเปิดสวน
+   TRADE_CONFLICT_MARGIN=5.0      # B2: ผลรวม conf ต่างกัน <= นี้ = สูสี งดเทรด
+   TRADE_MANAGE_EXITS=true        # B1: เปิดการจัดการ exit (master switch)
+   TRADE_BREAKEVEN=true           # B1: ดัน SL มา breakeven เมื่อกำไรพอ
+   TRADE_TRAILING=true            # B1: trailing stop
+   TRADE_PARTIAL_TP=false         # B1: ปิดบางส่วนเมื่อถึงครึ่งทาง TP
+
  วิธีใช้:
    python gold_trader.py             # รัน bot loop ทุก 1 นาที
    python gold_trader.py --once      # รันครั้งเดียวแล้วออก
@@ -57,6 +66,12 @@ from gold_risk import RiskManager
 
 load_dotenv()
 
+
+def _env_bool(name: str, default: str = "false") -> bool:
+    """อ่าน env เป็น boolean (1/true/yes/on = True)"""
+    return os.getenv(name, default).strip().lower() in ("1", "true", "yes", "on")
+
+
 # ─── Config ───────────────────────────────────────────────
 SYMBOL        = "XAUUSDm"          # จะถูก auto-detect ตอน connect
 DATA_DIR      = Path("./gold_data")
@@ -73,9 +88,28 @@ MAGIC         = int(  os.getenv("TRADE_MAGIC",       "20250323"))
 RISK_PCT       = float(os.getenv("TRADE_RISK_PCT",             "0"))    # 0 = ใช้ LOT_SIZE คงที่
 DAILY_LOSS_PCT = float(os.getenv("TRADE_DAILY_LOSS_LIMIT_PCT", "5.0"))
 MAX_DD_PCT     = float(os.getenv("TRADE_MAX_DRAWDOWN_PCT",     "10.0"))
-CLOSE_ON_HALT  = os.getenv("TRADE_CLOSE_ON_HALT", "false").strip().lower() in ("1", "true", "yes", "on")
+CLOSE_ON_HALT  = _env_bool("TRADE_CLOSE_ON_HALT", "false")
 TICK_MAX_AGE   = int(  os.getenv("TRADE_TICK_MAX_AGE",         "120"))  # วินาที
 RISK_STATE     = DATA_DIR / "risk_state.json"
+
+# ── Order management (B) ─────────────────────────────────
+# B3 — spread guard
+MAX_SPREAD        = float(os.getenv("TRADE_MAX_SPREAD",         "0.50"))  # USD, 0 = ปิด
+# B2 — conflict guard (กันหลาย TF ทิศตรงข้าม + กันเปิดสวนของที่ถืออยู่)
+CONFLICT_GUARD    = _env_bool("TRADE_CONFLICT_GUARD", "true")
+CONFLICT_MARGIN   = float(os.getenv("TRADE_CONFLICT_MARGIN",    "5.0"))   # ผลรวม conf ต่างกัน <= นี้ = สูสี งดเทรด
+# B1 — exit management (trailing / breakeven / partial TP)
+EXIT_MANAGE       = _env_bool("TRADE_MANAGE_EXITS", "true")               # master switch
+BREAKEVEN         = _env_bool("TRADE_BREAKEVEN",     "true")
+BE_TRIGGER_FRAC   = float(os.getenv("TRADE_BE_TRIGGER_FRAC",    "0.5"))   # ถึง 50% ทาง TP → ดัน SL มา breakeven
+BE_BUFFER_FRAC    = float(os.getenv("TRADE_BE_BUFFER_FRAC",     "0.05"))  # ล็อกกำไรเล็กน้อย (สัดส่วนของระยะ TP)
+TRAILING          = _env_bool("TRADE_TRAILING",     "true")
+TRAIL_START_FRAC  = float(os.getenv("TRADE_TRAIL_START_FRAC",   "0.5"))   # เริ่ม trail เมื่อถึง % ทาง TP
+TRAIL_FRAC        = float(os.getenv("TRADE_TRAIL_FRAC",         "0.5"))   # ระยะ trail = สัดส่วนของระยะ TP
+PARTIAL_TP        = _env_bool("TRADE_PARTIAL_TP",   "false")             # ปิดบางส่วน (ปิดไว้ default)
+PARTIAL_TP_FRAC   = float(os.getenv("TRADE_PARTIAL_TP_FRAC",    "0.5"))   # ถึง % ทาง TP → ปิดบางส่วน
+PARTIAL_CLOSE_PCT = float(os.getenv("TRADE_PARTIAL_CLOSE_PCT",  "50"))    # ปิดกี่ % ของ lot
+MANAGED_STATE     = DATA_DIR / "managed_positions.json"
 
 MT5_LOGIN     = int(os.getenv("MT5_LOGIN",    "0"))
 MT5_PASSWORD  = os.getenv("MT5_PASSWORD", "")
@@ -363,6 +397,14 @@ def open_order(parsed: dict) -> bool:
         log.error("ไม่สามารถดึงราคาได้ — ข้าม")
         return False
 
+    # B3: spread guard — ข้ามถ้า spread กว้างผิดปกติ (กันเข้าในช่วงผันผวน/ข่าว)
+    spread = ask - bid
+    if MAX_SPREAD > 0 and spread > MAX_SPREAD:
+        log.warning(f"[{tf}] spread {spread:.2f} > {MAX_SPREAD:.2f} USD — ข้าม")
+        _log_trade("SKIP_SPREAD", tf, direction, ask, parsed["sl"], parsed["tp"],
+                   parsed["conf"], 0, note=f"spread={spread:.2f}")
+        return False
+
     # A2: lot ตาม % ความเสี่ยง (ใช้ entry/SL จาก signal) — fallback เป็น LOT_SIZE
     lot = calc_volume(parsed["entry"], parsed["sl"])
 
@@ -399,7 +441,7 @@ def open_order(parsed: dict) -> bool:
     if result.retcode == mt5.TRADE_RETCODE_DONE:
         log.info(
             f"✅ เปิด order สำเร็จ | {tf} | {direction} | "
-            f"Lot:{lot} | Price:{price:.2f} | "
+            f"Lot:{lot} | Price:{price:.2f} | spread:{spread:.2f} | "
             f"SL:{sl:.2f} | TP:{tp:.2f} | "
             f"Conf:{parsed['conf']:.1f}% | Ticket:#{result.order}"
         )
@@ -486,6 +528,179 @@ def close_all_bot_orders():
 
 
 # ════════════════════════════════════════════════════════════
+#  B1 — EXIT MANAGEMENT (breakeven / trailing / partial TP)
+# ════════════════════════════════════════════════════════════
+
+_managed = None   # state ของ position ที่จัดการแล้ว (กัน partial ซ้ำ)
+
+
+def _load_managed() -> dict:
+    global _managed
+    if _managed is None:
+        try:
+            _managed = json.loads(MANAGED_STATE.read_text(encoding="utf-8")) \
+                       if MANAGED_STATE.exists() else {}
+        except Exception:
+            _managed = {}
+    return _managed
+
+
+def _save_managed():
+    try:
+        MANAGED_STATE.parent.mkdir(parents=True, exist_ok=True)
+        MANAGED_STATE.write_text(json.dumps(_managed, ensure_ascii=False, indent=2),
+                                 encoding="utf-8")
+    except Exception:
+        pass
+
+
+def modify_sltp(position, new_sl: float = None, new_tp: float = None) -> bool:
+    """แก้ SL/TP ของ position ที่เปิดอยู่ (TRADE_ACTION_SLTP)"""
+    request = {
+        "action"  : mt5.TRADE_ACTION_SLTP,
+        "symbol"  : SYMBOL,
+        "position": position.ticket,
+        "sl"      : normalize_price(new_sl) if new_sl is not None else position.sl,
+        "tp"      : normalize_price(new_tp) if new_tp is not None else position.tp,
+        "magic"   : MAGIC,
+    }
+    result = mt5.order_send(request)
+    if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+        return True
+    retcode = result.retcode if result else "None"
+    log.warning(f"แก้ SL/TP #{position.ticket} ไม่สำเร็จ: retcode={retcode}")
+    return False
+
+
+def close_partial(position, volume: float) -> bool:
+    """ปิดบางส่วนของ position ด้วย market order"""
+    info = mt5.symbol_info(SYMBOL)
+    step = info.volume_step or 0.01
+    vmin = info.volume_min or 0.01
+
+    vol = round(math.floor(volume / step) * step, 2)
+    if vol < vmin:
+        return False
+    # ถ้าปิดแล้วส่วนที่เหลือเล็กกว่า min → ปิดทั้งไม้ไปเลย
+    if round(position.volume - vol, 2) < vmin:
+        vol = position.volume
+
+    bid, ask = get_current_price()
+    if position.type == mt5.ORDER_TYPE_BUY:
+        close_type, price = mt5.ORDER_TYPE_SELL, bid
+    else:
+        close_type, price = mt5.ORDER_TYPE_BUY, ask
+
+    request = {
+        "action"      : mt5.TRADE_ACTION_DEAL,
+        "symbol"      : SYMBOL,
+        "volume"      : vol,
+        "type"        : close_type,
+        "position"    : position.ticket,
+        "price"       : price,
+        "deviation"   : 20,
+        "magic"       : MAGIC,
+        "comment"     : f"partial_{position.ticket}",
+        "type_time"   : mt5.ORDER_TIME_GTC,
+        "type_filling": mt5.ORDER_FILLING_IOC,
+    }
+    result = mt5.order_send(request)
+    if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+        log.info(f"✂️ Partial close #{position.ticket} | {vol} lot @ {price:.2f}")
+        _log_trade("PARTIAL_CLOSE", "-", "CLOSE", price, 0, 0, 0,
+                   position.ticket, note=f"vol={vol}", lot=vol)
+        if tg:
+            try:
+                tg._send(tg.order_chat,
+                         f"✂️ Partial close #{position.ticket}  {vol} lot @ {price:.2f}")
+            except Exception:
+                pass
+        return True
+    retcode = result.retcode if result else "None"
+    log.warning(f"Partial close #{position.ticket} ไม่สำเร็จ: retcode={retcode}")
+    return False
+
+
+def manage_open_positions():
+    """
+    B1: จัดการ exit ของออเดอร์ที่เปิดอยู่ทุกรอบ
+       - partial TP : ถึง PARTIAL_TP_FRAC ของทาง TP → ปิดบางส่วน (ครั้งเดียว)
+       - breakeven  : ถึง BE_TRIGGER_FRAC → ดัน SL มาที่ทุน (+buffer)
+       - trailing   : ถึง TRAIL_START_FRAC → เลื่อน SL ตามราคา (เฉพาะทางที่ดีขึ้น)
+    SL จะถูกแก้เฉพาะเมื่อ "แน่นขึ้น" เท่านั้น (ไม่ผ่อนคลายความเสี่ยง)
+    """
+    positions = get_open_orders()
+    state = _load_managed()
+
+    # cleanup state ของไม้ที่ปิดไปแล้ว
+    open_tickets = {str(p.ticket) for p in positions}
+    for k in list(state.keys()):
+        if k not in open_tickets:
+            del state[k]
+
+    if not positions:
+        _save_managed()
+        return
+
+    bid, ask = get_current_price()
+    if bid == 0:
+        return
+
+    info  = mt5.symbol_info(SYMBOL)
+    point = info.point or 0.01
+    stops = (info.trade_stops_level or 0) * point   # ระยะ SL ขั้นต่ำจากราคา
+
+    for p in positions:
+        key   = str(p.ticket)
+        st    = state.setdefault(key, {"partial_done": False})
+        is_buy = p.type == mt5.ORDER_TYPE_BUY
+        entry = p.price_open
+        tp    = p.tp
+        cur   = bid if is_buy else ask        # ราคาที่จะใช้ exit
+
+        if not tp or abs(tp - entry) <= 0:
+            continue
+        tp_dist  = abs(tp - entry)
+        progress = ((cur - entry) if is_buy else (entry - cur)) / tp_dist
+
+        # ── partial TP ──
+        if PARTIAL_TP and progress >= PARTIAL_TP_FRAC and not st.get("partial_done"):
+            if close_partial(p, p.volume * PARTIAL_CLOSE_PCT / 100.0):
+                st["partial_done"] = True
+                _save_managed()
+
+        # ── คำนวณ SL ใหม่ (breakeven + trailing, เลือกที่แน่นกว่า) ──
+        new_sl = None
+        if BREAKEVEN and progress >= BE_TRIGGER_FRAC:
+            buf    = BE_BUFFER_FRAC * tp_dist
+            new_sl = entry + buf if is_buy else entry - buf
+        if TRAILING and progress >= TRAIL_START_FRAC:
+            td    = TRAIL_FRAC * tp_dist
+            trail = cur - td if is_buy else cur + td
+            if new_sl is None:
+                new_sl = trail
+            else:
+                new_sl = max(new_sl, trail) if is_buy else min(new_sl, trail)
+
+        if new_sl is None:
+            continue
+
+        # เคารพระยะ SL ขั้นต่ำของโบรกเกอร์ + แก้เฉพาะตอนที่แน่นขึ้น
+        if is_buy:
+            new_sl   = min(new_sl, cur - stops)
+            improved = new_sl > 0 and new_sl > (p.sl + point)
+        else:
+            new_sl   = max(new_sl, cur + stops)
+            improved = new_sl > 0 and (p.sl <= 0 or new_sl < (p.sl - point))
+
+        if improved and modify_sltp(p, new_sl=new_sl):
+            log.info(f"🛡️ เลื่อน SL #{p.ticket} → {normalize_price(new_sl):.2f} "
+                     f"(progress {progress*100:.0f}%)")
+
+    _save_managed()
+
+
+# ════════════════════════════════════════════════════════════
 #  TRADE LOGGER
 # ════════════════════════════════════════════════════════════
 
@@ -540,6 +755,16 @@ def show_status():
             print(f"         เหตุผล: {res['halt_reason']}")
     elif acc is not None:
         print(f"  Risk : ปิดการเช็ค (TRADE_DAILY_LOSS_LIMIT_PCT/MAX_DRAWDOWN_PCT = 0)")
+
+    # ── Order management (B) ──
+    exits = []
+    if EXIT_MANAGE:
+        if BREAKEVEN: exits.append("breakeven")
+        if TRAILING:  exits.append("trailing")
+        if PARTIAL_TP: exits.append("partialTP")
+    exits_str = ", ".join(exits) if exits else "ปิด"
+    print(f"  Order: spread<={MAX_SPREAD:.2f} · conflict-guard {'on' if CONFLICT_GUARD else 'off'} · "
+          f"exits[{exits_str}]")
     print(f"{'═'*60}")
 
     if not orders:
@@ -620,22 +845,74 @@ def check_risk() -> bool:
     return False
 
 
+def _net_exposure(open_orders: list) -> str | None:
+    """ทิศทางสุทธิของออเดอร์ที่ถืออยู่ — 'UP' / 'DOWN' / None"""
+    buys  = sum(1 for p in open_orders if p.type == mt5.ORDER_TYPE_BUY)
+    sells = sum(1 for p in open_orders if p.type == mt5.ORDER_TYPE_SELL)
+    if buys > sells:
+        return "UP"
+    if sells > buys:
+        return "DOWN"
+    return None
+
+
+def resolve_conflict(candidates: list, open_orders: list) -> tuple[str | None, str]:
+    """
+    B2: รวมสัญญาณหลาย TF เป็นทิศทางเดียว + กันเปิดสวนของที่ถืออยู่
+    คืน (allowed_dir, reason):
+       allowed_dir = "UP"/"DOWN" = เปิดได้เฉพาะทางนี้
+                     "ANY"       = guard ปิดอยู่ เปิดได้ทุกทาง
+                     None        = งดเปิดรอบนี้ (สูสี/สวนของเดิม)
+    """
+    if not CONFLICT_GUARD:
+        return "ANY", ""
+    if not candidates:
+        return None, ""
+
+    ups = [c for c in candidates if "UP" in c["direction"]]
+    dns = [c for c in candidates if "UP" not in c["direction"]]
+    up_conf = sum(c["conf"] for c in ups)
+    dn_conf = sum(c["conf"] for c in dns)
+
+    reason = ""
+    if ups and dns:
+        if abs(up_conf - dn_conf) <= CONFLICT_MARGIN:
+            return None, (f"TF ขัดกันและสูสี (UP {len(ups)}TF/{up_conf:.0f} vs "
+                          f"DN {len(dns)}TF/{dn_conf:.0f}) — งดเทรด")
+        winner = "UP" if up_conf > dn_conf else "DOWN"
+        reason = (f"TF ขัดกัน → เลือก {winner} "
+                  f"(UP {up_conf:.0f} vs DN {dn_conf:.0f})")
+    else:
+        winner = "UP" if ups else "DOWN"
+
+    # กันเปิดสวนกับโพสิชันที่ถืออยู่
+    net = _net_exposure(open_orders)
+    if net and winner != net:
+        return None, (f"signal {winner} สวนกับโพสิชันที่ถืออยู่ ({net}) — งดเปิดสวน")
+
+    return winner, reason
+
+
 def run_once():
     """
-    รัน 1 รอบ: เช็ค risk/ตลาด → อ่าน signals → ตัดสินใจ → execute
+    รัน 1 รอบ: เช็ค risk/ตลาด → จัดการ exit → อ่าน signals → ตัดสินใจ → execute
     """
     now = datetime.now().strftime("%H:%M:%S")
     log.info(f"{'─'*50}")
     log.info(f"รอบใหม่ {now}")
 
-    # ── 0a. A1: risk guard (daily loss / drawdown) ───────
-    if not check_risk():
-        return
-
-    # ── 0b. A3: market-hours guard (tick ต้องสด) ─────────
+    # ── 0a. A3: market-hours guard (tick ต้องสด) ─────────
     is_open, why = is_market_open()
     if not is_open:
         log.info(f"⛔ ข้ามรอบนี้ — {why}")
+        return
+
+    # ── 0b. B1: จัดการ exit ของไม้ที่เปิดอยู่ (ทำทุกรอบ) ──
+    if EXIT_MANAGE:
+        manage_open_positions()
+
+    # ── 0c. A1: risk guard (daily loss / drawdown) ───────
+    if not check_risk():
         return
 
     # ── 1. โหลด signals ──────────────────────────────────
@@ -649,34 +926,48 @@ def run_once():
     total_open  = len(open_orders)
     log.info(f"Open orders: {total_open}/{MAX_ORDERS}")
 
-    # ── 3. วนทุก TF ──────────────────────────────────────
+    # ── 3. รวบรวม candidates ที่ผ่านเกณฑ์ ────────────────
+    candidates = []
     for tf in TIMEFRAMES:
-        sig_raw = signals.get(tf)
-        if not sig_raw:
-            continue
-
-        parsed = parse_signal(tf, sig_raw)
+        parsed = parse_signal(tf, signals.get(tf))
         if parsed is None:
             continue
-
         log.info(
             f"[{tf}] signal: {parsed['direction']} | "
             f"conf: {parsed['conf']:.1f}% | "
             f"entry: {parsed['entry']:.2f} | "
             f"SL: {parsed['sl']:.2f} | TP: {parsed['tp']:.2f}"
         )
+        candidates.append(parsed)
+
+    if not candidates:
+        log.info(f"จบรอบ | ไม่มี signal ผ่านเกณฑ์ | Open: {len(get_open_orders())}")
+        return
+
+    # ── 4. B2: ตัดสินทิศทางรวม + กันสัญญาณขัดกัน ─────────
+    allowed_dir, reason = resolve_conflict(candidates, open_orders)
+    if reason:
+        log.info(f"Conflict guard: {reason}")
+    if allowed_dir is None:
+        log.info(f"จบรอบ | งดเปิดออเดอร์ (conflict guard) | Open: {len(get_open_orders())}")
+        return
+
+    # ── 5. วนเปิดเฉพาะทางที่อนุญาต ───────────────────────
+    for parsed in candidates:
+        cand_dir = "UP" if "UP" in parsed["direction"] else "DOWN"
+        if allowed_dir != "ANY" and cand_dir != allowed_dir:
+            log.info(f"[{parsed['tf']}] {parsed['direction']} ไม่ตรงทางที่อนุญาต "
+                     f"({allowed_dir}) — ข้าม")
+            continue
 
         # ── safety: ห้ามเกิน MAX_ORDERS รวม ────────────
         if total_open >= MAX_ORDERS:
-            log.warning(f"[{tf}] ถึง MAX_ORDERS ({MAX_ORDERS}) แล้ว — ข้าม")
+            log.warning(f"[{parsed['tf']}] ถึง MAX_ORDERS ({MAX_ORDERS}) แล้ว — ข้าม")
             break
 
-        # ── pyramid: ไม่มีข้อจำกัด direction เดิม ───────
-        # เปิดได้เรื่อยๆ ถ้า conf ผ่าน และยังไม่เกิน MAX_ORDERS
-        success = open_order(parsed)
-        if success:
+        # ── pyramid: เปิดซ้อนทางเดียวกันได้ ถ้ายังไม่เกิน MAX_ORDERS ──
+        if open_order(parsed):
             total_open += 1
-            # refresh open orders หลังเปิดสำเร็จ
             open_orders = get_open_orders()
 
     log.info(f"จบรอบ | Open orders ตอนนี้: {len(get_open_orders())}")
@@ -688,11 +979,14 @@ def main_loop():
     """รัน bot loop ทุก 1 นาที"""
     log.info("🚀 Gold Auto Trader เริ่มทำงาน")
     log.info(f"   Symbol    : {SYMBOL}")
-    log.info(f"   Lot size  : {LOT_SIZE}")
+    log.info(f"   Lot size  : {'risk %.2f%%/ไม้' % RISK_PCT if RISK_PCT > 0 else LOT_SIZE}")
     log.info(f"   Min conf  : {MIN_CONF}%")
     log.info(f"   Max orders: {MAX_ORDERS}")
     log.info(f"   Magic     : {MAGIC}")
     log.info(f"   TFs       : {TIMEFRAMES}")
+    log.info(f"   Risk grd  : daily {DAILY_LOSS_PCT}% · DD {MAX_DD_PCT}%")
+    log.info(f"   Spread max: {MAX_SPREAD} · Conflict guard: {CONFLICT_GUARD}")
+    log.info(f"   Exit mgmt : manage={EXIT_MANAGE} BE={BREAKEVEN} trail={TRAILING} partial={PARTIAL_TP}")
 
     if not connect_mt5():
         log.error("เชื่อมต่อ MT5 ไม่ได้ — หยุด")
