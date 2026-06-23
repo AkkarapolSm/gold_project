@@ -22,10 +22,10 @@ from scipy.stats import linregress
 #  MAIN ENTRY POINT
 # ════════════════════════════════════════════════════════════
 
-def build_features(df: pd.DataFrame, target_pips: float = None) -> pd.DataFrame:
+def build_features(df: pd.DataFrame, target_atr_mult: float = None) -> pd.DataFrame:
     """
     รับ DataFrame OHLCV แล้วคืน DataFrame พร้อม features ครบ
-    target_pips: ถ้าใส่มา จะสร้าง column 'target' สำหรับ train ML ด้วย
+    target_atr_mult: ถ้าใส่มา จะสร้าง column 'target' (เกณฑ์ = ค่านี้ × ATR14) สำหรับ train ML
     """
     df = df.copy()
     df = _trend_features(df)
@@ -37,8 +37,8 @@ def build_features(df: pd.DataFrame, target_pips: float = None) -> pd.DataFrame:
     df = _time_features(df)
     df = _lag_features(df)
 
-    if target_pips is not None:
-        df = _create_target(df, target_pips)
+    if target_atr_mult is not None:
+        df = _create_target(df, target_atr_mult)
 
     # ลบแถวที่ indicator ยังไม่ครบ (warmup period)
     df = df.dropna()
@@ -452,14 +452,16 @@ def _lag_features(df: pd.DataFrame) -> pd.DataFrame:
 #  9. TARGET VARIABLE (สำหรับ Train ML)
 # ════════════════════════════════════════════════════════════
 
-def _create_target(df: pd.DataFrame, min_pips: float = 3.0) -> pd.DataFrame:
+def _create_target(df: pd.DataFrame, atr_mult: float = 0.5) -> pd.DataFrame:
     """
-    สร้าง target สำหรับ classification:
-      1  = ราคาขึ้น >= min_pips ใน N candle ข้างหน้า
-     -1  = ราคาลง >= min_pips ใน N candle ข้างหน้า
+    สร้าง target สำหรับ classification (แบบ "สมมาตร" — ดูฝั่งที่เคลื่อนมากกว่า):
+      1  = ราคาขึ้น (up_move >= เกณฑ์ และ up_move >= down_move)
+     -1  = ราคาลง  (down_move >= เกณฑ์ และ down_move > up_move)
       0  = sideways
 
-    min_pips: จำนวน point ขั้นต่ำ (XAU/USD 1 pip ≈ 0.10)
+    เกณฑ์ = atr_mult × ATR14 (ปรับตามความผันผวน/ราคา ไม่ผูกค่าคงที่)
+    ─ แก้บั๊กเดิม: min_pips คงที่ (3) เล็กเกินบนทอง ~$4000 + เดิมกำหนด DOWN ทีหลัง
+      จึงทับ UP เสมอ → label เบ้ DOWN ~65% (โมเดลกลายเป็น permabear)
     """
     c = df["Close"]
     future_high = df["High"].shift(-5).rolling(5, min_periods=1).max().shift(-(5-1))
@@ -468,9 +470,13 @@ def _create_target(df: pd.DataFrame, min_pips: float = 3.0) -> pd.DataFrame:
     df["future_high"] = future_high
     df["future_low"]  = future_low
 
+    up_move = future_high - c
+    dn_move = c - future_low
+    thr = df["ATR14"] * atr_mult if "ATR14" in df.columns else float(atr_mult)
+
     df["target"] = 0
-    df.loc[(future_high - c) >= min_pips, "target"] = 1
-    df.loc[(c - future_low)  >= min_pips, "target"] = -1
+    df.loc[(up_move >= thr) & (up_move >= dn_move), "target"] = 1
+    df.loc[(dn_move >= thr) & (dn_move >  up_move), "target"] = -1
 
     # target_binary (สำหรับ binary classification)
     df["target_binary"] = (df["target"] == 1).astype(int)
@@ -563,11 +569,11 @@ if __name__ == "__main__":
         df_demo["High"] = df_demo[["Open","High","Close"]].max(axis=1)
         df_demo["Low"]  = df_demo[["Open","Low","Close"]].min(axis=1)
 
-        df_feat = build_features(df_demo, target_pips=3.0)
+        df_feat = build_features(df_demo, target_atr_mult=0.5)
     else:
         tf_name, tf_val = "M15", TIMEFRAMES["M15"]
         df_raw = fetch_candles(tf_name, tf_val, n=500)
-        df_feat = build_features(df_raw, target_pips=3.0)
+        df_feat = build_features(df_raw, target_atr_mult=0.5)
         mt5.shutdown()
 
     # สรุปผล

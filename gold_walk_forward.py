@@ -330,7 +330,7 @@ def start_weekly_retrain_scheduler():
                 import MetaTrader5 as mt5
                 for tf_name, tf_val in TIMEFRAMES.items():
                     df_raw = fetch_candles(tf_name, tf_val, n=3000)
-                    df_feat = build_features(df_raw, target_pips=3.0)
+                    df_feat = build_features(df_raw, target_atr_mult=0.5)
                     df_feat.to_csv(DATA_DIR / f"XAUUSD_{tf_name}_features.csv")
                 mt5.shutdown()
 

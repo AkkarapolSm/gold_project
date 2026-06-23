@@ -107,7 +107,7 @@ def load_data(tf: str = "M15") -> tuple[pd.DataFrame, list, str]:
 
     target_col = "target"
     if target_col not in df.columns:
-        raise ValueError("ไม่พบ column 'target' — รัน build_features(df, target_pips=3.0) ก่อน")
+        raise ValueError("ไม่พบ column 'target' — รัน build_features(df, target_atr_mult=0.5) ก่อน")
 
     feat_cols = get_feature_cols(df)
     df = df[feat_cols + [target_col]].dropna()

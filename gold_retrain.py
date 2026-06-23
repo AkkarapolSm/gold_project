@@ -59,7 +59,7 @@ def rebuild_features() -> bool:
             if df is None or df.empty:
                 print(f"  [SKIP] {tf_name} ดึงข้อมูลไม่ได้")
                 continue
-            feat = build_features(df, target_pips=3.0)
+            feat = build_features(df, target_atr_mult=0.5)
             feat.to_csv(DATA_DIR / f"XAUUSD_{tf_name}_features.csv")
             print(f"  ✅ features {tf_name}: {len(feat)} rows")
         except Exception as e:

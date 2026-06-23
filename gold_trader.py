@@ -100,6 +100,10 @@ MAX_SPREAD        = float(os.getenv("TRADE_MAX_SPREAD",         "0.50"))  # USD,
 # B2 — conflict guard (กันหลาย TF ทิศตรงข้าม + กันเปิดสวนของที่ถืออยู่)
 CONFLICT_GUARD    = _env_bool("TRADE_CONFLICT_GUARD", "true")
 CONFLICT_MARGIN   = float(os.getenv("TRADE_CONFLICT_MARGIN",    "5.0"))   # ผลรวม conf ต่างกัน <= นี้ = สูสี งดเทรด
+# B4 — anti-pyramiding (กันกองไม้ทิศเดียว/ราคาเดียว)
+MAX_PER_DIR       = int(  os.getenv("TRADE_MAX_PER_DIR",        "2"))     # ไม้ทิศเดียวสูงสุด (0 = ไม่จำกัด)
+ENTRY_COOLDOWN    = int(  os.getenv("TRADE_ENTRY_COOLDOWN_SEC", "600"))   # เว้นเวลาเปิด (วินาที, 0 = ปิด)
+MIN_GAP_ATR       = float(os.getenv("TRADE_MIN_GAP_ATR",        "1.0"))   # เว้นระยะราคา × ATR (0 = ปิด)
 # B1 — exit management (trailing / breakeven / partial TP)
 EXIT_MANAGE       = _env_bool("TRADE_MANAGE_EXITS", "true")               # master switch
 BREAKEVEN         = _env_bool("TRADE_BREAKEVEN",     "true")
@@ -177,6 +181,9 @@ risk = RiskManager(RISK_STATE, daily_loss_pct=DAILY_LOSS_PCT, max_dd_pct=MAX_DD_
 
 # ใช้ track ว่า tick เดินอยู่ไหม (robust กว่าเทียบ time ตรงๆ เพราะ broker มี offset)
 _tick_track = {"time": None, "seen_at": None}
+
+# เวลาเปิดออเดอร์ล่าสุด (สำหรับ cooldown — B4)
+_last_entry_ts = 0.0
 
 
 # ════════════════════════════════════════════════════════════
@@ -808,6 +815,7 @@ def show_status():
     exits_str = ", ".join(exits) if exits else "ปิด"
     print(f"  Order: spread<={MAX_SPREAD:.2f} · conflict-guard {'on' if CONFLICT_GUARD else 'off'} · "
           f"exits[{exits_str}]")
+    print(f"  Pyrmd: max/dir {MAX_PER_DIR} · cooldown {ENTRY_COOLDOWN}s · gap {MIN_GAP_ATR}×ATR")
     print(f"{'═'*60}")
 
     if not orders:
@@ -1029,10 +1037,39 @@ def resolve_conflict(candidates: list, open_orders: list) -> tuple[str | None, s
     return winner, reason
 
 
+def _pyramid_block(parsed: dict, cand_dir: str, open_orders: list) -> str | None:
+    """
+    B4: กันกองไม้สวนเทรนด์ — คืนเหตุผลถ้าควร "ข้าม" / None ถ้าเปิดได้
+       - per-direction cap : ไม้ทิศเดียวกันห้ามเกิน MAX_PER_DIR
+       - cooldown          : เว้นเวลาขั้นต่ำหลังเปิดไม้ล่าสุด
+       - price separation  : ห้ามเปิดถ้าราคาใกล้ไม้เดิมทิศเดียว < MIN_GAP_ATR × ATR
+    """
+    want_type = mt5.ORDER_TYPE_BUY if cand_dir == "UP" else mt5.ORDER_TYPE_SELL
+    same = [p for p in open_orders if p.type == want_type]
+
+    if MAX_PER_DIR > 0 and len(same) >= MAX_PER_DIR:
+        return f"ถึงเพดานไม้ทิศ {cand_dir} ({len(same)}/{MAX_PER_DIR})"
+
+    if ENTRY_COOLDOWN > 0:
+        gap = time.time() - _last_entry_ts
+        if gap < ENTRY_COOLDOWN:
+            return f"cooldown เหลือ {int(ENTRY_COOLDOWN - gap)}s"
+
+    if MIN_GAP_ATR > 0 and same:
+        atr_est = abs(parsed["entry"] - parsed["sl"]) / 1.5   # ประมาณ ATR จาก SL ของ signal
+        if atr_est > 0:
+            nearest = min(abs(parsed["entry"] - p.price_open) for p in same)
+            if nearest < MIN_GAP_ATR * atr_est:
+                return (f"ราคาใกล้ไม้เดิม {nearest:.2f} < {MIN_GAP_ATR}×ATR "
+                        f"({MIN_GAP_ATR * atr_est:.2f}) — กันกองราคาเดียว")
+    return None
+
+
 def run_once():
     """
     รัน 1 รอบ: เช็ค risk/ตลาด → จัดการ exit → อ่าน signals → ตัดสินใจ → execute
     """
+    global _last_entry_ts
     now = datetime.now().strftime("%H:%M:%S")
     log.info(f"{'─'*50}")
     log.info(f"รอบใหม่ {now}")
@@ -1101,10 +1138,17 @@ def run_once():
             log.warning(f"[{parsed['tf']}] ถึง MAX_ORDERS ({MAX_ORDERS}) แล้ว — ข้าม")
             break
 
+        # ── B4: กันกองไม้สวนเทรนด์ (per-dir cap / cooldown / price gap) ──
+        block = _pyramid_block(parsed, cand_dir, open_orders)
+        if block:
+            log.info(f"[{parsed['tf']}] ข้าม — {block}")
+            continue
+
         # ── pyramid: เปิดซ้อนทางเดียวกันได้ ถ้ายังไม่เกิน MAX_ORDERS ──
         if open_order(parsed):
-            total_open += 1
-            open_orders = get_open_orders()
+            total_open    += 1
+            _last_entry_ts = time.time()
+            open_orders    = get_open_orders()
 
     log.info(f"จบรอบ | Open orders ตอนนี้: {len(get_open_orders())}")
 
@@ -1123,6 +1167,7 @@ def main_loop():
     log.info(f"   Risk grd  : daily {DAILY_LOSS_PCT}% · DD {MAX_DD_PCT}%")
     log.info(f"   Spread max: {MAX_SPREAD} · Conflict guard: {CONFLICT_GUARD}")
     log.info(f"   Exit mgmt : manage={EXIT_MANAGE} BE={BREAKEVEN} trail={TRAILING} partial={PARTIAL_TP}")
+    log.info(f"   Anti-pyr  : max/dir {MAX_PER_DIR} · cooldown {ENTRY_COOLDOWN}s · gap {MIN_GAP_ATR}xATR")
 
     if not connect_mt5():
         log.error("เชื่อมต่อ MT5 ไม่ได้ — หยุด")

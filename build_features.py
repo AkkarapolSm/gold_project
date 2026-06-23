@@ -20,7 +20,7 @@ for tf_name, tf_val in [
     if df.empty:
         print(f"  [SKIP] ดึงข้อมูลไม่ได้")
         continue
-    df_feat = build_features(df, target_pips=3.0)
+    df_feat = build_features(df, target_atr_mult=0.5)
     out = Path("gold_data") / f"XAUUSD_{tf_name}_features.csv"
     df_feat.to_csv(out)
     print(f"  ✅ {len(df_feat)} rows → {out}")
